@@ -3,13 +3,15 @@ import random
 from pathlib import Path
 from dss import DSS as dss_engine
 
-def pegar_fase():
-    DSSCircuit.SetActiveElement(DSSMonitors.Element)
-    DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[0])
-    fase = list(DSSCircuit.Buses.VMagAngle).index(DSSMonitors.Channel(1)) / 2
+def indexar_barras() -> dict:
+    barras = {}
+    for i, barra in enumerate(DSSCircuit.AllBusNames):
+        barras[barra] = i
+        
+    return barras
 
-    return fase
-
+def pegar_fase() -> int:
+    return DSSCircuit.ActiveCktElement.NodeOrder[0] - 1
 
 def InitializeDSS() -> tuple:
     DSSObj = dss_engine
@@ -65,13 +67,26 @@ def Calcula_residuo(vet_med: np.array, vet_estados: np.array, num_med_pot: int, 
     
     DSSMonitors.First
     for i in range(DSSMonitors.Count):
-        if DSSMonitors.Mode == 32:
-            tensao = vet_med[i]
-            #Acha a fase da medida, 0 é a fase 'a', 1 é a fase 'b' e 2 é a fase 'c'
+        DSSCircuit.SetActiveElement(DSSMonitors.Element)
+        DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[0])
+        #Acha a fase da medida, 0 é a fase 'a', 1 é a fase 'b' e 2 é a fase 'c'
+        fase = pegar_fase()
+        index_barra = barras[DSSCircuit.Buses.Name]
+        tensao_estimada = vet_estados[(index_barra*3) + fase]
+        if DSSMonitors.Mode == 1:
+            for j in range(DSSCircuit.Lines.Phases):
+                continue
+            DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[1])
             fase = pegar_fase()
-            tensao_estimada = 0
+            index_barra = barras[DSSCircuit.Buses.Name]
+            tensao_estimada2 = vet_estados[(index_barra*3) + fase]
+                
+        elif DSSMonitors.Mode == 32:
+            tensao = vet_med[i]
             vetor_residuos.append(tensao - tensao_estimada)
         DSSMonitors.Next
+        
+    return np.array(vetor_residuos)
             
 def Calcula_Jacobiana(vet_med: np.array, vet_estados: np.array, num_med_pot: int, num_med_tensao: int) -> np.array:
     num_medidas = num_med_tensao + num_med_pot
@@ -116,8 +131,9 @@ iniciar_medidores(num_med_pot, num_med_tensao)
 
 DSSText.Command = 'Solve'
 
+barras = indexar_barras()
+
 vet_med = medidas(num_med_pot)
-print(vet_med)
 
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(DSSCircuit.NumBuses*6)
@@ -129,4 +145,3 @@ for i in range(DSSCircuit.NumBuses*3):
 jacobiana = Calcula_Jacobiana(vet_med, vet_estados, num_med_pot, num_med_tensao)
 
 residuos = Calcula_residuo(vet_med, vet_estados, num_med_pot, num_med_tensao)
-

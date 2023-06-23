@@ -72,14 +72,17 @@ def Calcula_residuo(vet_med: np.array, vet_estados: np.array, num_med_pot: int, 
         #Acha a fase da medida, 0 é a fase 'a', 1 é a fase 'b' e 2 é a fase 'c'
         fase = pegar_fase()
         index_barra = barras[DSSCircuit.Buses.Name]
-        tensao_estimada = vet_estados[(index_barra*3) + fase]
+        tensao_estimada = vet_estados[DSSCircuit.NumBuses + (index_barra*3) + fase]
+        ang_estimado = vet_estados[(index_barra*3) + fase]
         if DSSMonitors.Mode == 1:
-            for j in range(DSSCircuit.Lines.Phases):
-                continue
             DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[1])
-            fase = pegar_fase()
             index_barra = barras[DSSCircuit.Buses.Name]
-            tensao_estimada2 = vet_estados[(index_barra*3) + fase]
+            Ymatrix = 1/((DSSCircuit.Lines.Rmatrix + DSSCircuit.Lines.Xmatrix*1j)*DSSCircuit.Lines.Length)
+            pot = 0
+            for j in range(DSSCircuit.Lines.Phases):
+                tensao_estimada2 = vet_estados[DSSCircuit.NumBuses + (index_barra*3) + fase]
+                ang_estimado2 = vet_estados[(index_barra*3) + fase]
+                pot += tensao_estimada*tensao_estimada2
                 
         elif DSSMonitors.Mode == 32:
             tensao = vet_med[i]
@@ -145,3 +148,8 @@ for i in range(DSSCircuit.NumBuses*3):
 jacobiana = Calcula_Jacobiana(vet_med, vet_estados, num_med_pot, num_med_tensao)
 
 residuos = Calcula_residuo(vet_med, vet_estados, num_med_pot, num_med_tensao)
+
+DSSMonitors.First
+DSSCircuit.SetActiveElement(DSSMonitors.Element)
+print(1/(DSSCircuit.Lines.Cmatrix*DSSCircuit.Lines.Length))
+print(1/(DSSCircuit.Lines.Cmatrix*DSSCircuit.Lines.Length*1j))

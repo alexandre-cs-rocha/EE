@@ -23,7 +23,7 @@ def Calcula_Jacobiana(vet_estados: np.array, num_med: int) -> np.array:
     H[4, 2] = 0
     return H
 
-def Calcula_Residuo(vet_med: dict, vet_estados: dict) -> np.array:
+def Calcula_Residuo(vet_med: np.array, vet_estados: np.array) -> np.array:
     mag1 = vet_estados[1]
     mag2 = vet_estados[2]
     magt = mag1*mag2
@@ -45,7 +45,7 @@ def Calcula_Residuo(vet_med: dict, vet_estados: dict) -> np.array:
     #Calcula a estimativa da Tensão
     residuos.append(vet_med[4] - vet_estados[1])
         
-    return residuos
+    return np.array(residuos)
 
 def Calcula_Pesos(num_med: int, des_pad: np.array) -> np.array:
     matriz_pesos = np.zeros((num_med, num_med))
@@ -60,7 +60,7 @@ def EE(vet_med: np.array, vet_estados: np.array, matriz_pesos: np.array, erro_ma
     while(np.max(delx) > erro_max):
         jacobiana = Calcula_Jacobiana(vet_estados, len(vet_med))
         
-        residuo = np.array(Calcula_Residuo(vet_med, vet_estados))
+        residuo = Calcula_Residuo(vet_med, vet_estados)
 
         #Calcula a matriz ganho
         matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)

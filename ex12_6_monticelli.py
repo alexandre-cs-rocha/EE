@@ -23,7 +23,7 @@ def Calcula_Jacobiana(vet_estados: np.array, num_med: int) -> np.array:
     H[4, 2] = 0
     return H
 
-def Calcula_Residuo(vet_med: np.array, vet_estados: np.array) -> np.array:
+def Calcula_Residuo(vet_med: dict, vet_estados: dict) -> np.array:
     mag1 = vet_estados[1]
     mag2 = vet_estados[2]
     magt = mag1*mag2

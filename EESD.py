@@ -72,15 +72,18 @@ def iniciar_medidores(num_med_pot: int, num_med_tensao: int) -> None:
         if not (DSSCircuit.Lines.IsSwitch):
             linhas.append(DSSCircuit.Lines.Name)
             DSSCircuit.Lines.Next
-
-    elementos = random.sample(linhas, num_med_pot)
-    for i, elem in enumerate(elementos):
+            
+    for i, elem in enumerate(linhas):
         DSSText.Command = f'New Monitor.{i} element=Line.{elem}, terminal=1, mode=1'
         
     #Define aleatóriamente os elementos para medir as tensões na barra em que eles estão conectados
-    elementos = random.sample(DSSCircuit.AllElementNames, num_med_tensao)
+    elementos = []
+    for bus in DSSCircuit.AllBusNames:
+        DSSCircuit.SetActiveBus(bus)
+        elementos.append(DSSCircuit.Buses.AllPDEatBus[0])
+       
     for i, elem in enumerate(elementos):
-        DSSText.Command = f'New Monitor.{num_med_pot + i} element={elem}, terminal=1, mode=32'
+        DSSText.Command = f'New Monitor.{11 + i} element={elem}, terminal=1, mode=32'
     
 def medidas() -> tuple:
     #Amostra e salva os valores dos medidores no sistema
@@ -186,21 +189,23 @@ def Calcula_residuo(vet_med: np.array, vet_estados: np.array, num_med_pot: int) 
         
     return np.array(vetor_residuos)
 
-def Derivadas_tensao(jacobiana: np.array, index_barra: int, fases: set, i: int, medida: int) -> int:
+def Derivadas_tensao(jacobiana: np.array, fases: set, i: int, medida: int) -> int:
+    DSSCircuit.SetActiveElement(DSSMonitors.Element)
+    DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[0])
+    index_barra = barras[DSSCircuit.Buses.Name]
+        
     for fase in fases:
-        delta = 0
-        if i == DSSMonitors.idx-1:
-            delta = 1
-
-        j = (DSSCircuit.NumBuses*3) + (index_barra*3) + fase
-
-        jacobiana[medida][j] = delta
+        jacobiana[medida][(DSSCircuit.NumBuses*3) + (index_barra*3) + fase] = 1
         medida += 1
     
     return medida
    
-def Derivadas_potencia(jacobiana: np.array, index_barra: int, fases: set, i: int, medida: int) -> int:
+def Derivadas_potencia(jacobiana: np.array, fases: set, i: int, medida: int) -> int:
     for fase in fases:
+        DSSCircuit.SetActiveElement(DSSMonitors.Element)
+        DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[0])
+        index_barra = barras[DSSCircuit.Buses.Name]
+        
         Gs, Bs, Bsh = Ymatrix()
         
         tensao_estimada = vet_estados[(DSSCircuit.NumBuses*3) + (index_barra*3) + fase]
@@ -212,11 +217,8 @@ def Derivadas_potencia(jacobiana: np.array, index_barra: int, fases: set, i: int
                 continue
             ang_estimado2 = vet_estados[(index_barra*3) + m]
             delta = tensao_estimada*(Gs[fase][m]*np.cos(ang_estimado-ang_estimado2)+(Bs[fase][m]+Bsh[fase][m])*np.sin(ang_estimado-ang_estimado2))
-            print(delta)
             jacobiana[medida][DSSCircuit.NumBuses*3 + (index_barra*3) + m] = delta
-
-        print(jacobiana)
-                
+            
         #Derivada do fluxo de Potência ativa com relação ao ângulo na barra inicial
         for m in fases:
             if m == fase:
@@ -288,9 +290,6 @@ def Calcula_Jacobiana(vet_estados: np.array, num_medidas: int) -> np.array:
     DSSMonitors.First
     medida = 0
     for i in range(DSSMonitors.Count):
-        DSSCircuit.SetActiveElement(DSSMonitors.Element)
-        DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[0])
-        index_barra = barras[DSSCircuit.Buses.Name]
         
         fases = pegar_fases()
         fases = set(fases)
@@ -298,11 +297,11 @@ def Calcula_Jacobiana(vet_estados: np.array, num_medidas: int) -> np.array:
         
         if DSSMonitors.Mode == 32:
             #Calcular a derivada das tensoes medidas com relação as outras variáveis de estado
-            medida = Derivadas_tensao(jacobiana, index_barra, fases, i, medida)
+            medida = Derivadas_tensao(jacobiana, fases, i, medida)
             
         elif DSSMonitors.Mode == 1:
             #Calcular a derivada dos fluxos de potencias medidas com relação as outras variáveis de estado
-            medida = Derivadas_potencia(jacobiana, index_barra, fases, i, medida)
+            medida = Derivadas_potencia(jacobiana, fases, i, medida)
                                  
         DSSMonitors.Next
         
@@ -314,8 +313,8 @@ CurrentFolder = path.parent
 MasterFile = CurrentFolder / '13Bus' / 'IEEE13Nodeckt.dss'
 
 #Inicializar variaveis
-num_med_tensao = 0
-num_med_pot = 1
+num_med_tensao = 16
+num_med_pot = 11
 
 DSSCircuit, DSSText, DSSObj, DSSMonitors = InitializeDSS()
 DSSObj = dss_engine
@@ -341,7 +340,6 @@ for i in range(DSSCircuit.NumBuses*3, DSSCircuit.NumBuses*6):
 matriz_pesos = Calcula_pesos(num_medidas)
 
 jacobiana = Calcula_Jacobiana(vet_estados, num_medidas)
-print(jacobiana)
 
 residuos = Calcula_residuo(vet_med, vet_estados, num_med_pot)
 

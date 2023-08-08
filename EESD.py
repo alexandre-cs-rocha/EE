@@ -47,14 +47,20 @@ def organizar_nodes() -> dict:
 
 def indexar_barras() -> pd.DataFrame:
     #Designa indíces às barras
-    aux = []
+    nomes = []
+    bases = []
     for barra in DSSCircuit.AllBusNames:
         #if barra.isdigit(): è possível que o sourcebus e o reg não entrem para a EE
-        aux.append(barra)
-        
-    idx = [i for i in range(len(aux))]
-    barras = pd.DataFrame(columns=['nome_barra', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao'], index=idx)
-    barras['nome_barra'] = aux
+        DSSCircuit.SetActiveBus(barra)
+        base = DSSCircuit.Buses.kVBase
+        nomes.append(barra)
+        bases.append(base)
+    
+    idx = [i for i in range(len(nomes))]
+    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao'],
+                          index=idx)
+    barras['nome_barra'] = nomes
+    barras.loc[idx, 'Bases'] = bases
 
     return barras
 
@@ -107,7 +113,7 @@ def medidas() -> pd.DataFrame:
     DSSMonitors.SaveAll()
 
     num_medidas = 0
-    basekva = 2 * 10**6
+    baseva = 2 * 10**6
     DSSMonitors.First
     for _ in range(DSSMonitors.Count):
         index_barra = achar_index_barra(barras, 0)
@@ -119,18 +125,18 @@ def medidas() -> pd.DataFrame:
                 barras['Flux_pot_at'][index_barra] = []
                 barras['Flux_pot_rat'][index_barra] = []
                 
-            linha = DSSMonitors.Element
-            
+            elemento = DSSMonitors.Element
+            DSSCircuit.ActiveCktElement.BusNames[1]
             medidas_at = np.full([3], np.NaN)
             medidas_rat = np.full([3], np.NaN)
             
             for i, fase in enumerate(fases):
-                medidas_at[fase] = matriz_medidas[i*2]*1000 / basekva
-                medidas_rat[fase] = matriz_medidas[i*2+1]*1000 / basekva
+                medidas_at[fase] = matriz_medidas[i*2]*1000 / baseva
+                medidas_rat[fase] = matriz_medidas[i*2+1]*1000 / baseva
                 num_medidas += 2
                 
-            barras['Flux_pot_at'][index_barra].append((linha, medidas_at))
-            barras['Flux_pot_rat'][index_barra].append((linha, medidas_rat))
+            barras['Flux_pot_at'][index_barra].append((elemento, medidas_at))
+            barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
         
         elif 'pqi' in DSSMonitors.Name:
             medidas_at = np.full([3], np.NaN)
@@ -141,12 +147,12 @@ def medidas() -> pd.DataFrame:
                 medidas_rat[fase] = matriz_medidas[i*2+1]
                 num_medidas += 2
             
-            if DSSMonitors.Element == 'vsource.source':
+            '''if DSSMonitors.Element == 'vsource.source':
                 medidas_at = -medidas_at
-                medidas_rat = -medidas_rat
+                medidas_rat = -medidas_rat'''
                 
-            barras['Inj_pot_at'][index_barra] = medidas_at * 1000 / basekva
-            barras['Inj_pot_rat'][index_barra] = medidas_rat * 1000 / basekva
+            barras['Inj_pot_at'][index_barra] = medidas_at*1000/baseva
+            barras['Inj_pot_rat'][index_barra] = medidas_rat*1000/baseva
               
         elif 'v' in DSSMonitors.Name:
             if type(barras['Tensao'][index_barra]) != np.ndarray:
@@ -177,7 +183,8 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: n
                        num_buses: int, barras: pd.DataFrame) -> int:
     
     barra1 = barras['nome_barra'][index_barra]
-    basekva = 2*10**6
+    basekv = barras['Bases'][index_barra]
+    baseY = (2*10**6) / ((basekv*1000)**2)
     i = 0
     for fase in fases:
         inj_pot_est = 0
@@ -197,7 +204,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: n
                     inj_pot_est += tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
                     
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
-        inj_pot_est = tensao_estimada*inj_pot_est * 1000 / basekva
+        inj_pot_est = tensao_estimada*inj_pot_est
         vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
@@ -207,7 +214,8 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: n
 def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra: int,
                         num_buses: int, barras: pd.DataFrame) -> int:
     
-    basekva = 2*10**6
+    basekv = barras['Bases'][index_barra]
+    baseY = (2*10**6) / ((basekv*1000)**2)
     barra1 = barras['nome_barra'][index_barra]
     for fase in fases:
         inj_pot_est = 0
@@ -226,7 +234,7 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: 
                     ang_estimado2 = vet_estados[(index_barra2)*3+m]
                     inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
-        inj_pot_est = tensao_estimada*inj_pot_est * 1000 / basekva
+        inj_pot_est = tensao_estimada*inj_pot_est
         vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
@@ -243,13 +251,16 @@ def Residuo_tensao(vetor_residuos: np.array, vet_estados: np.array, fases: np.ar
             
         return residuo_atual
 
-def Residuo_fluxo_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int, linha) -> int:
+def Residuo_fluxo_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int, elemento: str) -> int:
     barra1 = barras['nome_barra'][index_barra1]
-    basekva = 2*10**6
+    basekv = barras['Bases'][index_barra1]
+    baseY = (2*10**6) / ((basekv*1000)**2)
     num_buses = DSSCircuit.NumBuses
-    DSSCircuit.SetActiveElement(linha)
-    Gsmatrix, Bsmatrix, Bshmatrix = Shuntmatrix(DSSCircuit, DSSCircuit.Lines.Length, fases)
-    barra2 = DSSCircuit.Lines.Bus2
+    Bshmatrix = np.zeros((3, 3))
+    if 'line' in elemento:
+        DSSCircuit.SetActiveElement(elemento)
+        Gsmatrix, Bsmatrix, Bshmatrix = Shuntmatrix(DSSCircuit, fases)
+    barra2 = DSSCircuit.ActiveCktElement.BusNames[1]
     index_barra2 = barras[barras['nome_barra'] == barra2].index.values[0]
     
     tensao_estimada = vet_estados[(DSSCircuit.NumBuses+index_barra1)*3:(DSSCircuit.NumBuses+index_barra1)*3 + 3]
@@ -268,7 +279,7 @@ def Residuo_fluxo_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases:
             tensao_estimada2 = vet_estados[DSSCircuit.NumBuses*3 + (index_barra2*3) + m]
             ang_estimado2 = vet_estados[(index_barra2*3) + m]
             #Calcula a potencia com base nas tensões e ângulos estimados
-            parte1 = tensao_estimada[fase]*tensao_estimada[m]*(Gs*np.cos(ang_estimado[fase]-ang_estimado[m])+(Bs)*np.sin(ang_estimado[fase]-ang_estimado[m]))
+            parte1 = tensao_estimada[fase]*tensao_estimada[m]*(Gs*np.cos(ang_estimado[fase]-ang_estimado[m])+(Bs+Bsh)*np.sin(ang_estimado[fase]-ang_estimado[m]))
             parte2 = tensao_estimada2*tensao_estimada[fase]*(Gs*np.cos(ang_estimado[fase]-ang_estimado2) + (Bs*np.sin(ang_estimado[fase]-ang_estimado2)))
             pot_ativa_estimada += (parte1 - parte2)
         potencia_at = barras['Flux_pot_at'][index_barra1][0][1][fase]
@@ -277,13 +288,16 @@ def Residuo_fluxo_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases:
         
     return residuo_atual
   
-def Residuo_fluxo_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int, linha) -> int:
+def Residuo_fluxo_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int, elemento: str) -> int:
     barra1 = barras['nome_barra'][index_barra1]
-    basekva = 2*10**6
+    basekv = barras['Bases'][index_barra1]
+    baseY = (2*10**6) / ((basekv*1000)**2)
     num_buses = DSSCircuit.NumBuses
-    DSSCircuit.SetActiveElement(linha)
-    Gsmatrix, Bsmatrix, Bshmatrix = Shuntmatrix(DSSCircuit, DSSCircuit.Lines.Length, fases)
-    barra2 = DSSCircuit.Lines.Bus2
+    Bshmatrix = np.zeros((3, 3))
+    if 'line' in elemento:
+        DSSCircuit.SetActiveElement(elemento)
+        Gsmatrix, Bsmatrix, Bshmatrix = Shuntmatrix(DSSCircuit, fases)
+    barra2 = DSSCircuit.ActiveCktElement.BusNames[1]
     index_barra2 = barras[barras['nome_barra'] == barra2].index.values[0]
     
     tensao_estimada = vet_estados[(DSSCircuit.NumBuses+index_barra1)*3:(DSSCircuit.NumBuses+index_barra1)*3 + 3]
@@ -302,7 +316,7 @@ def Residuo_fluxo_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases
             tensao_estimada2 = vet_estados[DSSCircuit.NumBuses*3 + (index_barra2*3) + m]
             ang_estimado2 = vet_estados[(index_barra2*3) + m]
             #Calcula a potencia com base nas tensões e ângulos estimados
-            parte1 = tensao_estimada[fase]*tensao_estimada[m]*(Gs*np.sin(ang_estimado[fase]-ang_estimado[m])-(Bs)*np.cos(ang_estimado[fase]-ang_estimado[m]))
+            parte1 = tensao_estimada[fase]*tensao_estimada[m]*(Gs*np.sin(ang_estimado[fase]-ang_estimado[m])-(Bs+Bsh)*np.cos(ang_estimado[fase]-ang_estimado[m]))
             parte2 = tensao_estimada2*tensao_estimada[fase]*(Gs*np.sin(ang_estimado[fase]-ang_estimado2) - (Bs*np.cos(ang_estimado[fase]-ang_estimado2)))
             pot_reativa_estimada += (parte1 - parte2)
         potencia_rat = barras['Flux_pot_rat'][index_barra1][0][1][fase]
@@ -330,16 +344,16 @@ def Calcula_residuo(vet_estados: np.array) -> np.array:
     for idx1, medidas in enumerate(barras['Flux_pot_at']):
         if type(medidas) == list:
             for medida in medidas:
-                idx2 = medida[0]
+                elemento = medida[0]
                 fases = np.where((np.isnan(medida[1]) == False))[0]
-                residuo_atual = Residuo_fluxo_pot_at(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx1, idx2)
+                residuo_atual = Residuo_fluxo_pot_at(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx1, elemento)
             
     for idx1, medidas in enumerate(barras['Flux_pot_rat']):
         if type(medidas) == list:
             for medida in medidas:
-                idx2 = medida[0]
+                elemento = medida[0]
                 fases = np.where((np.isnan(medida[1]) == False))[0]
-                residuo_atual = Residuo_fluxo_pot_rat(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx1, idx2)
+                residuo_atual = Residuo_fluxo_pot_rat(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx1, elemento)
             
     for idx, medida in enumerate(barras['Tensao']):
         if type(medida) == np.ndarray:
@@ -368,16 +382,16 @@ def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: 
             
     for idx1, medida in enumerate(barras['Flux_pot_at']):
         if type(medida) == list:
-            linha = medida[0][0]
+            elemento = medida[0][0]
             fases = np.where((np.isnan(medida[0][1]) == False))[0]
-            medida_atual = Derivadas_fluxo_pot_at(jacobiana, fases, medida_atual, idx1, linha, barras, nodes, vet_estados_aux,
+            medida_atual = Derivadas_fluxo_pot_at(jacobiana, fases, medida_atual, idx1, elemento, barras, nodes, vet_estados_aux,
                                                   DSSCircuit, Ybus)
             
     for idx1, medida in enumerate(barras['Flux_pot_rat']):
         if type(medida) == list:
-            linha = medida[0][0]
+            elemento = medida[0][0]
             fases = np.where((np.isnan(medida[0][1]) == False))[0]
-            medida_atual = Derivadas_fluxo_pot_rat(jacobiana, fases, medida_atual, idx1, linha, barras, nodes, vet_estados_aux,
+            medida_atual = Derivadas_fluxo_pot_rat(jacobiana, fases, medida_atual, idx1, elemento, barras, nodes, vet_estados_aux,
                                                   DSSCircuit, Ybus)
             
     for idx, medida in enumerate(barras['Tensao']):
@@ -395,7 +409,8 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, erro
             break
         
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas)
-        
+        '''for i, medida in enumerate(jacobiana):
+            print(i+1, medida)'''
         residuo = Calcula_residuo(vet_estados)
         
         #Calcula a matriz ganho
@@ -414,6 +429,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, erro
     print(k)
     return vet_estados
 
+
 #Achar o path do script do OpenDSS
 path = Path(__file__)
 CurrentFolder = path.parent
@@ -428,8 +444,8 @@ DSSMonitors = DSSCircuit.Monitors
 DSSText.Command = f'Compile {MasterFile}'
 
 elem_inj_pot = ['Vsource.source', 'Load.load1']
-elem_flux_pot = ['Line.line1', 'Line.line2']
-elem_tensao = ['Line.line1']
+elem_flux_pot = []
+elem_tensao = ['Line.line1', 'Line.line2', 'Transformer.t1', 'Load.load1']
 
 iniciar_medidores(elem_inj_pot, elem_flux_pot, elem_tensao)
 
@@ -448,7 +464,7 @@ for i in range(len(barras)*3 - 3, len(barras)*6 - 3):
 
 matriz_pesos = Calcula_pesos(num_medidas)
 
-vet_estados = EE(barras, vet_estados, matriz_pesos, 10**-3, 10)
+vet_estados = EE(barras, vet_estados, matriz_pesos, 10**-3, 3)
 
 ang = np.array([])
 tensoes = np.array([])

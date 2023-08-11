@@ -25,10 +25,10 @@ def Shuntmatrix(DSSCircuit, fases:np.array) -> np.array:
     return Gs_matriz, Bs_matriz, Bsh_matriz
         
 def Derivadas_inj_pot_at(jacobiana: np.array, fases: np.array, medida_atual: int, index_barra: int, num_buses: int,
-                         vet_estados: np.array, barras: pd.DataFrame, nodes: dict, medidas: np.array, Ybus) -> int:
+                         vet_estados: np.array, barras: pd.DataFrame, nodes: dict, medidas: np.array, Ybus, baseva) -> int:
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
-    baseY = (2*10**6) / ((basekv*1000)**2)
+    baseY = baseva / ((basekv*1000)**2)
     #Derivada da injeção de potência ativa com relação as tensões
     for fase in fases:
         no1 = nodes[barra1+f'.{fase+1}']
@@ -85,10 +85,10 @@ def Derivadas_inj_pot_at(jacobiana: np.array, fases: np.array, medida_atual: int
     return medida_atual
         
 def Derivadas_inj_pot_rat(jacobiana: np.array, fases: np.array, medida_atual: int, index_barra: int, num_buses: int,
-                         vet_estados: np.array, barras: pd.DataFrame, nodes: dict, medidas: np.array, Ybus) -> int:
+                         vet_estados: np.array, barras: pd.DataFrame, nodes: dict, medidas: np.array, Ybus, baseva) -> int:
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
-    baseY = (2*10**6) / ((basekv*1000)**2)
+    baseY = baseva / ((basekv*1000)**2)
     
     #Derivada da injeção de potência reativa com relação as tensões
     for fase in fases:
@@ -142,10 +142,10 @@ def Derivadas_tensao(jacobiana: np.array, fases: np.array, medida_atual: int, in
     return medida_atual
 
 def Derivadas_fluxo_pot_at(jacobiana: np.array, fases: np.array, medida_atual: int, index_barra1: int, elemento: str,
-                           barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus) -> int:
+                           barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus, baseva) -> int:
     barra1 = barras['nome_barra'][index_barra1]
     basekv = barras['Bases'][index_barra1]
-    baseY = (2*10**6) / ((basekv*1000)**2)
+    baseY = baseva / ((basekv*1000)**2)
     num_buses = DSSCircuit.NumBuses
     DSSCircuit.SetActiveElement(elemento)
     Bshmatrix = np.zeros((3, 3))
@@ -248,10 +248,10 @@ def Derivadas_fluxo_pot_at(jacobiana: np.array, fases: np.array, medida_atual: i
     return medida_atual
       
 def Derivadas_fluxo_pot_rat(jacobiana: np.array, fases: np.array, medida_atual: int, index_barra1: int, elemento: str,
-                           barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus) -> int:
+                           barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus, baseva) -> int:
     barra1 = barras['nome_barra'][index_barra1]
     basekv = barras['Bases'][index_barra1]
-    baseY = (2*10**6) / ((basekv*1000)**2)
+    baseY = baseva / ((basekv*1000)**2)
     num_buses = DSSCircuit.NumBuses
     DSSCircuit.SetActiveElement(elemento)
     Bshmatrix = np.zeros((3, 3))

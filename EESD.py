@@ -57,7 +57,7 @@ def indexar_barras() -> pd.DataFrame:
         bases.append(base)
     
     idx = [i for i in range(len(nomes))]
-    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao'],
+    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao'],
                           index=idx)
     barras['nome_barra'] = nomes
     barras.loc[idx, 'Bases'] = bases
@@ -131,7 +131,7 @@ def medidas(baseva: int) -> pd.DataFrame:
         barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
         barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
         num_medidas += 6
-            
+                    
     #Amostra e salva os valores dos medidores no sistema
     DSSMonitors.SampleAll()
     DSSMonitors.SaveAll()
@@ -141,6 +141,7 @@ def medidas(baseva: int) -> pd.DataFrame:
         barra = DSSMonitors.Terminal - 1
         index_barra = achar_index_barra(barras, barra)
         fases = pegar_fases()
+        barras['Fases'][index_barra] = fases
         matriz_medidas = DSSMonitors.AsMatrix()[0][2:]
         
         if 'pqij' in DSSMonitors.Name:
@@ -162,8 +163,8 @@ def medidas(baseva: int) -> pd.DataFrame:
             barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
         
         elif 'pqi' in DSSMonitors.Name:
-            medidas_at = np.full([3], np.NaN)
-            medidas_rat = np.full([3], np.NaN)
+            medidas_at = np.zeros(3)
+            medidas_rat = np.zeros(3)
             
             for i, fase in enumerate(fases):
                 medidas_at[fase] = matriz_medidas[i*2]
@@ -178,17 +179,17 @@ def medidas(baseva: int) -> pd.DataFrame:
               
         elif 'v' in DSSMonitors.Name:
             if type(barras['Tensao'][index_barra]) != np.ndarray:
-                medidas = np.full([3], np.NaN)
+                medidas = np.zeros(3)
 
                 for i, fase in enumerate(fases):
                     medidas[fase] = matriz_medidas[i]
-                    num_medidas += 1
-
+                    
                 basekv = DSSCircuit.Buses.kVBase
                 barras['Tensao'][index_barra] = medidas / (basekv*1000)
+                num_medidas += 3
         
         DSSMonitors.Next
-            
+        
     return barras, num_medidas
 
 def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
@@ -235,29 +236,32 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
     
     return matriz_pesos
 
-def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra: int,
+def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_atual: int, index_barra: int,
                        num_buses: int, barras: pd.DataFrame, baseva) -> int:
-    
+    fases = barras['Fases'][index_barra]
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
     #baseY = 1
-    for fase in fases:
+    for fase in range(3):
         inj_pot_est = 0
-        no1 = nodes[barra1+f'.{fase+1}']
         tensao_estimada = vet_estados[(num_buses+index_barra)*3+fase]
         ang_estimado = vet_estados[(index_barra)*3+fase]
-        for index_barra2 in range(len(barras['nome_barra'])):
-            barra2 = barras['nome_barra'][index_barra2]
-            for m in range(3):
-                no2 = nodes[barra2+f'.{m+1}']
-                Yij = Ybus[no1, no2] / baseY
-                if Yij != 0:
-                    Gs = np.real(Yij)
-                    Bs = np.imag(Yij)
-                    tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
-                    ang_estimado2 = vet_estados[(index_barra2)*3+m]
-                    inj_pot_est += tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
+        if fase in fases:
+            no1 = nodes[barra1+f'.{fase+1}']
+            for index_barra2 in range(len(barras['nome_barra'])):
+                barra2 = barras['nome_barra'][index_barra2]
+                fases2 = barras['Fases'][index_barra2]
+                for m in range(3):
+                    if m in fases2:
+                        no2 = nodes[barra2+f'.{m+1}']
+                        Yij = Ybus[no1, no2] / baseY
+                        if Yij != 0:
+                            Gs = np.real(Yij)
+                            Bs = np.imag(Yij)
+                            tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
+                            ang_estimado2 = vet_estados[(index_barra2)*3+m]
+                            inj_pot_est += tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
             
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
 
@@ -269,29 +273,32 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: n
         
     return residuo_atual
     
-def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra: int,
+def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo_atual: int, index_barra: int,
                         num_buses: int, barras: pd.DataFrame, baseva) -> int:
-    
+    fases = barras['Fases'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
     #baseY = 1
     barra1 = barras['nome_barra'][index_barra]
-    for fase in fases:
+    for fase in range(3):
         inj_pot_est = 0
-        no1 = nodes[barra1+f'.{fase+1}']
         tensao_estimada = vet_estados[(num_buses+index_barra)*3+fase]
         ang_estimado = vet_estados[(index_barra)*3+fase]
-        for index_barra2 in range(len(barras['nome_barra'])):
-            barra2 = barras['nome_barra'][index_barra2]
-            for m in range(3):
-                no2 = nodes[barra2+f'.{m+1}']
-                Yij = Ybus[no1, no2] / baseY
-                if Yij != 0:
-                    Gs = np.real(Yij)
-                    Bs = np.imag(Yij)
-                    tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
-                    ang_estimado2 = vet_estados[(index_barra2)*3+m]
-                    inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
+        if fase in fases:
+            no1 = nodes[barra1+f'.{fase+1}']
+            for index_barra2 in range(len(barras['nome_barra'])):
+                barra2 = barras['nome_barra'][index_barra2]
+                fases2 = barras['Fases'][index_barra2]
+                for m in range(3):
+                    if m in fases2:
+                        no2 = nodes[barra2+f'.{m+1}']
+                        Yij = Ybus[no1, no2] / baseY
+                        if Yij != 0:
+                            Gs = np.real(Yij)
+                            Bs = np.imag(Yij)
+                            tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
+                            ang_estimado2 = vet_estados[(index_barra2)*3+m]
+                            inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
         inj_pot_est = tensao_estimada*inj_pot_est
         vetor_residuos.append(np.abs(inj_pot_med) - np.abs(inj_pot_est))
@@ -395,13 +402,13 @@ def Calcula_residuo(vet_estados: np.array, baseva: int) -> np.array:
     for idx, medida in enumerate(barras['Inj_pot_at']):
         if type(medida) == np.ndarray:
             fases = np.where((np.isnan(medida) == False))[0]
-            residuo_atual = Residuo_inj_pot_at(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx, DSSCircuit.NumBuses,
+            residuo_atual = Residuo_inj_pot_at(vetor_residuos, vet_estados_aux, residuo_atual, idx, DSSCircuit.NumBuses,
                                                barras, baseva)
 
     for idx, medida in enumerate(barras['Inj_pot_rat']):
         if type(medida) == np.ndarray:
             fases = np.where((np.isnan(medida) == False))[0]
-            residuo_atual = Residuo_inj_pot_rat(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx, DSSCircuit.NumBuses,
+            residuo_atual = Residuo_inj_pot_rat(vetor_residuos, vet_estados_aux, residuo_atual, idx, DSSCircuit.NumBuses,
                                                 barras, baseva)
             
     for idx1, medidas in enumerate(barras['Flux_pot_at']):
@@ -435,14 +442,12 @@ def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: 
     medida_atual = 0
     for idx, medida in enumerate(barras['Inj_pot_at']):
         if type(medida) == np.ndarray:
-            fases = np.where((np.isnan(medida) == False))[0]
-            medida_atual = Derivadas_inj_pot_at(jacobiana, fases, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
+            medida_atual = Derivadas_inj_pot_at(jacobiana, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
                                                 nodes, medida, Ybus, baseva)
     
     for idx, medida in enumerate(barras['Inj_pot_rat']):
         if type(medida) == np.ndarray:
-            fases = np.where((np.isnan(medida) == False))[0]
-            medida_atual = Derivadas_inj_pot_rat(jacobiana, fases, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
+            medida_atual = Derivadas_inj_pot_rat(jacobiana, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
                                                 nodes, medida, Ybus, baseva)
             
     for idx1, medida in enumerate(barras['Flux_pot_at']):
@@ -461,8 +466,7 @@ def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: 
             
     for idx, medida in enumerate(barras['Tensao']):
         if type(medida) == np.ndarray:
-            fases = np.where((np.isnan(medida) == False))[0]
-            medida_atual = Derivadas_tensao(jacobiana, fases, medida_atual, idx, DSSCircuit.NumBuses)
+            medida_atual = Derivadas_tensao(jacobiana, barras, medida_atual, idx, DSSCircuit.NumBuses)
         
     return jacobiana
 
@@ -472,11 +476,11 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
     while(np.max(np.abs(delx)) > erro_max):
         if k >= lim_iter:
             break
-        
+
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
         residuo = Calcula_residuo(vet_estados, baseva)
-        
+        print(residuo)
         #Calcula a matriz ganho
         matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
         
@@ -496,7 +500,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
 #Achar o path do script do OpenDSS
 path = Path(__file__)
 CurrentFolder = path.parent
-MasterFile = CurrentFolder / '4Bus-YY-Bal' / '4Bus-YY-Bal.DSS'
+MasterFile = CurrentFolder / '4Bus-GrdYD-Bal' / '4Bus-GrdYD-Bal.DSS'
 
 DSSCircuit, DSSText, DSSObj, DSSMonitors = InitializeDSS()
 DSSObj = dss_engine
@@ -518,7 +522,7 @@ DSSText.Command = 'Solve'
 baseva =  6 * 10**6
 
 barras, num_medidas = medidas(baseva)
-print(barras['Inj_pot_at'])
+
 
 nodes = organizar_nodes()
 

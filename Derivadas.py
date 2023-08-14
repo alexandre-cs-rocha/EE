@@ -29,6 +29,7 @@ def Derivadas_inj_pot_at(jacobiana: np.array, fases: np.array, medida_atual: int
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
+    print(fases, barra1)
     #Derivada da injeção de potência ativa com relação as tensões
     for fase in fases:
         no1 = nodes[barra1+f'.{fase+1}']

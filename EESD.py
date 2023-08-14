@@ -93,7 +93,25 @@ def desvio_padrao(vet_med: np.array) -> np.array:
     return dp
 
 def iniciar_medidores(elem_inj_pot: list, elem_flux_pot: list, elem_tensao: list) -> None:
-    #Incia medidores para Injeção de Potência
+    for i, barra in enumerate(DSSCircuit.AllBusNames):
+        DSSCircuit.SetActiveBus(barra)
+        for j, elem in enumerate(DSSCircuit.Buses.AllPCEatBus):
+            if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
+                DSSText.Command = f'New Monitor.pqi{i}{j} element={elem}, terminal=1, mode=1'
+                
+        elem = DSSCircuit.Buses.AllPDEatBus[0]
+        if elem != 'None':
+            DSSCircuit.SetActiveElement(elem)
+            if DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0] == barra:
+                DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'
+                
+            elif DSSCircuit.ActiveCktElement.BusNames[1].split('.')[0] == barra:
+                DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=2, mode=32'
+                
+            else:
+                print('Deu errado')
+
+    '''#Incia medidores para Injeção de Potência
     for i, elem in enumerate(elem_inj_pot):
         DSSText.Command = f'New Monitor.pqi{i} element={elem}, terminal=1, mode=1'
     
@@ -103,20 +121,25 @@ def iniciar_medidores(elem_inj_pot: list, elem_flux_pot: list, elem_tensao: list
         
     #Incia medidores para Módulo de Tensão
     for i, elem in enumerate(elem_tensao):
-        DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'
+        DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'''
 
-def medidas() -> pd.DataFrame:
+def medidas(baseva: int) -> pd.DataFrame:
     barras = indexar_barras()
-    
+
+    num_medidas = 0
+    for idx in range(len(DSSCircuit.AllBusNames)):
+        barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
+        barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
+        num_medidas += 6
+            
     #Amostra e salva os valores dos medidores no sistema
     DSSMonitors.SampleAll()
     DSSMonitors.SaveAll()
 
-    num_medidas = 0
-    baseva = 100 * 10**3
     DSSMonitors.First
     for _ in range(DSSMonitors.Count):
-        index_barra = achar_index_barra(barras, 0)
+        barra = DSSMonitors.Terminal - 1
+        index_barra = achar_index_barra(barras, barra)
         fases = pegar_fases()
         matriz_medidas = DSSMonitors.AsMatrix()[0][2:]
         
@@ -145,7 +168,6 @@ def medidas() -> pd.DataFrame:
             for i, fase in enumerate(fases):
                 medidas_at[fase] = matriz_medidas[i*2]
                 medidas_rat[fase] = matriz_medidas[i*2+1]
-                num_medidas += 2
             
             if DSSMonitors.Element == 'vsource.source':
                 medidas_at = -medidas_at
@@ -166,13 +188,6 @@ def medidas() -> pd.DataFrame:
                 barras['Tensao'][index_barra] = medidas / (basekv*1000)
         
         DSSMonitors.Next
-    
-    for idx, barra in enumerate(DSSCircuit.AllBusNames):
-        DSSCircuit.SetActiveBus(barra)
-        if DSSCircuit.Buses.AllPCEatBus[0] == 'None':
-            barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
-            barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
-            num_medidas += 6
             
     return barras, num_medidas
 
@@ -248,7 +263,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, fases: n
 
         inj_pot_est = tensao_estimada*inj_pot_est
 
-        vetor_residuos.append(inj_pot_med - inj_pot_est)
+        vetor_residuos.append(np.abs(inj_pot_med) - np.abs(inj_pot_est))
     
     residuo_atual += 1
         
@@ -279,7 +294,7 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, fases: 
                     inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
         inj_pot_est = tensao_estimada*inj_pot_est
-        vetor_residuos.append(inj_pot_med - inj_pot_est)
+        vetor_residuos.append(np.abs(inj_pot_med) - np.abs(inj_pot_est))
     
     residuo_atual += 1
         
@@ -461,7 +476,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
         residuo = Calcula_residuo(vet_estados, baseva)
-        print(residuo)
+        
         #Calcula a matriz ganho
         matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
         
@@ -469,7 +484,6 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
         seinao = np.dot(np.dot(jacobiana.T, matriz_pesos), residuo)
 
         delx = np.dot(np.linalg.inv(matriz_ganho), seinao)
-        print(delx)
         
         #Atualiza o vetor de estados
         vet_estados += delx
@@ -493,21 +507,22 @@ DSSMonitors = DSSCircuit.Monitors
 DSSText.Command = 'Clear'
 DSSText.Command = f'Compile {MasterFile}'
 
-elem_inj_pot = ['Vsource.source', 'Load.load1']
+elem_inj_pot = []
 elem_flux_pot = []
-elem_tensao = ['Line.line1', 'Line.line2', 'Transformer.t1', 'Load.load1']
+elem_tensao = []
 
 iniciar_medidores(elem_inj_pot, elem_flux_pot, elem_tensao)
 
 DSSText.Command = 'Solve'
 
-barras, num_medidas = medidas()
+baseva =  6 * 10**6
+
+barras, num_medidas = medidas(baseva)
+print(barras['Inj_pot_at'])
 
 nodes = organizar_nodes()
 
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
-
-baseva = 6 * 10**6
 
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(len(barras)*6 - 3)

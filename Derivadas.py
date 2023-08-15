@@ -1,8 +1,5 @@
 import numpy as np
 import pandas as pd
-import scipy as sp
-from pathlib import Path
-from dss import DSS as dss_engine
 
 def Shuntmatrix(DSSCircuit, fases:np.array) -> np.array:
     Rs = DSSCircuit.Lines.Rmatrix * DSSCircuit.Lines.Length

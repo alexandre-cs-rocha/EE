@@ -70,22 +70,19 @@ def vetor_medidas(barras: pd.DataFrame):
 
     vet_med = np.asarray(vet_med)
     dp = np.asarray(dp)
-    print(len(dp))
-    print(len(vet_med))
 
     return vet_med, dp
 
-def teste_maior_residuo(vet_estados, barras, num_medidas, baseva, erro_max, lim_iter):
+def teste_maior_residuo(vet_estados, jacobiana, residuo, matriz_ganho, matriz_pesos, barras, num_medidas, baseva, erro_max, lim_iter):
     # Calculo das matrizes de covariancia
     l=num_medidas
     Covar_medidas = np.zeros((l,l))
     vet_med, des_pad = vetor_medidas(barras)
-    H = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
-    W = Calcula_pesos(barras, num_medidas)    
-    G = np.dot(np.dot(H.T, W), H)
+    H = jacobiana
+    W = matriz_pesos   
+    G = matriz_ganho
     for i in range(l):
         Covar_medidas[i][i]= des_pad[i]**2
-    print(np.diag(Covar_medidas))
     Covar_estados_estimados = np.linalg.inv(np.dot(np.dot(np.transpose(H),np.linalg.inv(Covar_medidas)),H))
     Covar_medidas_estimadas = np.dot(np.dot(H,Covar_estados_estimados),np.transpose(H))
     Covar_residuos = Covar_medidas-Covar_medidas_estimadas
@@ -107,7 +104,7 @@ def teste_maior_residuo(vet_estados, barras, num_medidas, baseva, erro_max, lim_
     #vetor_residuos_normalizados = np.dot(Rn,vetor_residuos)
     
     # Análise de erro e de b^
-    Matriz_erros = vetor_residuos/np.diag(Matriz_Sensibilidade)
+    Matriz_erros = residuo/np.diag(Matriz_Sensibilidade)
     Matriz_b = np.zeros((1,l))
 
     for i in range(len(des_pad)):
@@ -123,7 +120,7 @@ def teste_maior_residuo(vet_estados, barras, num_medidas, baseva, erro_max, lim_
     if abs(maxb)>3:
         vet_med_novo = vet_med
         vet_med_novo[index_maxb] = med_b-Matriz_erros[index_maxb]
-        txt1 = f'A medida {med_b} provavelmente contém um erro grosseiro,'
+        txt1 = f'A medida  de índice {index_maxb} e valor {med_b} provavelmente contém um erro grosseiro, pois apresenta um b igual a {maxb}'
         txt2 = f'uma estimativa para ela seria: {vet_med_novo[index_maxb]}.'
         #txt3 = f'Com essa nova medida, o resutado do estimador de estados seria: {EE(barras, vet_estados, matriz_pesos, baseva, erro_max, lim_iter)}'
         #txt4 = f'Nesse sentido, um novo teste de maior residuo teria como resultado: {teste_maior_residuo(EE(barras, vet_estados, matriz_pesos, W, 10**-3, 1),barras, num_medidas, baseva, erro_max, lim_iter)}'
@@ -134,4 +131,4 @@ def teste_maior_residuo(vet_estados, barras, num_medidas, baseva, erro_max, lim_
     else:
         return 'A estimação provavelmente não contém erros grosseiros'
 
-teste_maior_residuo(vet_estados, barras, num_medidas, baseva, erro_max, lim_iter)
+teste_maior_residuo(vet_estados, jacobiana, residuo, matriz_ganho, matriz_pesos, barras, num_medidas, baseva, erro_max, lim_iter)

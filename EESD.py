@@ -5,6 +5,7 @@ from pathlib import Path
 from dss import DSS as dss_engine
 from Derivadas import *
 from Residuos import *
+from Ymatrix import *
 
 def achar_index_barra(barras: pd.DataFrame, barra: int) -> int:
     #Retorna o index da barra do monitor ativo
@@ -319,12 +320,11 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
 
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
-        #Calcula a matriz ganho
-        matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
-
         residuo = Calcula_residuo(vet_estados, baseva)
         print(residuo)
-
+        #Calcula a matriz ganho
+        matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
+        
         #Calcula o outro lado da Equação normal
         seinao = np.dot(np.dot(jacobiana.T, matriz_pesos), residuo)
 
@@ -335,8 +335,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
         
         k += 1
         
-    print(k)
-    return vet_estados, jacobiana, residuo, matriz_ganho
+    return vet_estados
 
 #Achar o path do script do OpenDSS
 path = Path(__file__)
@@ -363,10 +362,10 @@ DSSText.Command = 'Solve'
 baseva =  6 * 10**6
 
 barras, num_medidas = medidas(baseva)
-
 nodes = organizar_nodes()
 
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
+Ybus = Ymatrix(DSSCircuit)
 
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(len(barras)*6 - 3)
@@ -387,7 +386,7 @@ vet_estados = teste[3:]
 
 matriz_pesos = Calcula_pesos(barras, num_medidas)
 
-vet_estados, jacobiana, residuo, matriz_ganho = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 1)
+vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 1)
 
 print(gabarito)
 print(np.concatenate((np.array([0, -2*np.pi/3, 2*np.pi/3]), vet_estados)))

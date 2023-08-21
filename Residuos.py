@@ -8,6 +8,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
+    print(baseY, basekv)
     #baseY = 1
     for fase in range(3):
         inj_pot_est = 0

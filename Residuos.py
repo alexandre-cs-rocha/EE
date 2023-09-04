@@ -4,11 +4,11 @@ from Derivadas import Shuntmatrix
 
 def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_atual: int, index_barra: int,
                        num_buses: int, barras: pd.DataFrame, baseva, nodes: dict, Ybus) -> int:
+
     fases = barras['Fases'][index_barra]
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
-    print(baseY, basekv)
     #baseY = 1
     for fase in range(3):
         inj_pot_est = 0
@@ -34,7 +34,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_
 
         inj_pot_est = tensao_estimada*inj_pot_est
 
-        vetor_residuos.append(np.abs(inj_pot_med) - np.abs(inj_pot_est))
+        vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
         
@@ -42,6 +42,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_
     
 def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo_atual: int, index_barra: int,
                         num_buses: int, barras: pd.DataFrame, baseva, nodes: dict, Ybus) -> int:
+
     fases = barras['Fases'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
@@ -68,7 +69,7 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo
                             inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
         inj_pot_est = tensao_estimada*inj_pot_est
-        vetor_residuos.append(np.abs(inj_pot_med) - np.abs(inj_pot_est))
+        vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
         

@@ -1,8 +1,5 @@
 import numpy as np
 import pandas as pd
-import scipy as sp
-from pathlib import Path
-from dss import DSS as dss_engine
 
 def reducao_kron(Yij: complex, Ykk: complex):
     yprim = np.zeros((3, 3), dtype=np.complex128)
@@ -14,9 +11,30 @@ def reducao_kron(Yij: complex, Ykk: complex):
                 yprim[linha, coluna] =  - ((-Yij)**2) / (Ykk)
     return yprim
 
-def Ymatrix(DSSCircuit):
-    baseY1 = 0.11575495704526467
-    baseY2 = 1.0401257396449703
+def KronRed(matrix, neutral):
+    # Matrix: deve ser uma matriz NxN
+    # Neutral: deve ser um número inteiro
+
+    # Crie a nova matriz com o mesmo tamanho da matriz original
+    n = len(matrix)
+    newmatrix = np.zeros((n, n), dtype=np.complex128)
+
+    for r in range(n):  # Loop pelas linhas
+        if r != neutral:  # Pule a linha do neutro
+            for c in range(n):  # Loop pelas colunas
+                if c != neutral:  # Pule a coluna do neutro
+                    newmatrix[r, c] = matrix[r, c] - (matrix[r, neutral] * matrix[neutral, c]) / matrix[neutral, neutral]
+
+    # Agora reduza a linha e coluna específica
+    # A nova matriz se tornou uma matriz (N-1)x(N-1)
+    newmatrix = np.delete(newmatrix, neutral, axis=0)
+    newmatrix = np.delete(newmatrix, neutral, axis=1)
+
+    return newmatrix
+
+def Ymatrix(DSSCircuit, baseva):
+    baseY1 = baseva / (7.199557856794634*1000)**2
+    baseY2 = baseva / (2.4017771198288433*1000)**2
     #Linha 1
     DSSCircuit.SetActiveElement('line1')
     Zvetor = (DSSCircuit.Lines.Rmatrix + DSSCircuit.Lines.Xmatrix*1j) * DSSCircuit.Lines.Length
@@ -29,7 +47,7 @@ def Ymatrix(DSSCircuit):
     Yl1 = np.linalg.inv(Zmatrix)
     Ypriml11 = np.concatenate([Yl1, -Yl1])
     Ypriml12 = np.concatenate([-Yl1, Yl1])
-    Ypriml1 = np.concatenate([Ypriml11, Ypriml12], axis=1) / baseY1
+    Ypriml1 = np.concatenate([Ypriml11, Ypriml12], axis=1)
     
     #Linha 2
     DSSCircuit.SetActiveElement('line2')
@@ -43,17 +61,22 @@ def Ymatrix(DSSCircuit):
     Yl2 = np.linalg.inv(Zmatrix)
     Ypriml21 = np.concatenate([Yl2, -Yl2])
     Ypriml22 = np.concatenate([-Yl2, Yl2])
-    Ypriml2 = np.concatenate([Ypriml21, Ypriml22], axis=1) / baseY2
+    Ypriml2 = np.concatenate([Ypriml21, Ypriml22], axis=1)
 
     #Carga
     Yij = (DSSCircuit.Loads.kW - DSSCircuit.Loads.kvar*1j)*1000 / ((DSSCircuit.Loads.kV*1000)**2)
-    Yprimc = reducao_kron(Yij, 3*Yij) / baseY2
+    Yprimc4 = np.array([[0.3120377219-0.1511267663j, 0, 0, -0.3120377219+0.1511267663j], 
+              [0, 0.3120377219-0.1511267663j, 0, -0.3120377219+0.1511267663j],
+              [0, 0, 0.3120377219-0.1511267663j, -0.3120377219+0.1511267663j], 
+              [-0.3120377219+0.1511267663j, -0.3120377219+0.1511267663, -0.3120377219+0.1511267663, 0.9361141018-0.4533807521j]], dtype=np.complex128)
+    Yprimc = KronRed(Yprimc4, 3)
+    #Yprimc = reducao_kron(Yij, 3*Yij)
 
     #Transformador
-    xl = (((4.16*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.06j
-    rl = (((4.16*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.005
-    xh = (((12.47*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.06j
-    rh = (((12.47*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.005
+    xl = (((2.4017771198288433*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.06j
+    rl = (((2.4017771198288433*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.005
+    xh = (((7.199557856794634*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.06j
+    rh = (((7.199557856794634*1000)**2) / (DSSCircuit.Transformers.kVA*1000))*0.005
     z1 = (rl+xl)
     z2 = (rh+xh)
     yt = z2/(z1*z2)
@@ -80,11 +103,14 @@ def Ymatrix(DSSCircuit):
     Yvector = [ [343.2684315-1237.766042j , 31.32731086+9.998440971j  , 31.32731086+9.998440971j],
                 [31.32731086+9.998440971j  , 343.2684315-1237.766042j , 31.32731086+9.998440971j],
                 [31.32731086+9.998440971j  , 31.32731086+9.998440971j  , 343.2684315-1237.766042j]]
+                
     Yprimv = np.zeros((3, 3), dtype=np.complex128)
     for i in range(3):
         for j in range(3):
-            Yprimv[i, j] = Yvector[i][j] / baseY1
-
+            Yprimv[i, j] = -Yvector[i][j]
+            
+    #Yprimv = Ypriml1
+    
     Ybus = np.zeros((12, 12), np.complex128)
     for i in range(DSSCircuit.NumBuses*3):
         for j in range(DSSCircuit.NumBuses*3):
@@ -102,5 +128,7 @@ def Ymatrix(DSSCircuit):
             
             if i >= 9 and j >= 9:
                 Ybus[i, j] += Yprimc[i-9, j-9]
-                
+    
+    Ybarra = pd.DataFrame(Ybus)
+    Ybarra.to_csv('Ybarra.csv', index=False)
     return Ybus

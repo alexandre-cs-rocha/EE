@@ -168,9 +168,9 @@ def medidas(baseva: int) -> pd.DataFrame:
                 medidas_at[fase] = matriz_medidas[i*2]
                 medidas_rat[fase] = matriz_medidas[i*2+1]
             
-            if DSSMonitors.Element == 'vsource.source':
+            '''if DSSMonitors.Element == 'vsource.source':
                 medidas_at = -medidas_at
-                medidas_rat = -medidas_rat
+                medidas_rat = -medidas_rat'''
                 
             barras['Inj_pot_at'][index_barra] = medidas_at*1000 /baseva
             barras['Inj_pot_rat'][index_barra] = medidas_rat*1000 /baseva
@@ -321,6 +321,8 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
         residuo = Calcula_residuo(vet_estados, baseva)
+        '''for i in range(len(residuo)):
+            residuo[i] = 10**-5'''
         print(residuo)
         #Calcula a matriz ganho
         matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
@@ -365,7 +367,7 @@ barras, num_medidas = medidas(baseva)
 nodes = organizar_nodes()
 
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
-Ybus = Ymatrix(DSSCircuit)
+Ybus = Ymatrix(DSSCircuit, baseva)
 
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(len(barras)*6 - 3)

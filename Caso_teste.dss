@@ -7,7 +7,7 @@ new circuit.6Bus basekV=11 phases=3 pu = 1.0677 basemva=33.3
 
 ! LINES
 !new line.fake length=1 units=m bus1=sourcebus bus2=n6
-! ~ rmatrix = [ 2.52133983e-17 -8.49641139e-02  8.49641139e-02 | 8.49641139e-02 -3.78200974e-17 -8.49641139e-02 | -8.49641139e-02  8.49641139e-02 -7.56401948e-17]
+! ~ rmatrix = [2.52133983e-17 -8.49641139e-02  8.49641139e-02 | 8.49641139e-02 -3.78200974e-17 -8.49641139e-02 | -8.49641139e-02  8.49641139e-02 -7.56401948e-17]
 ! ~ xmatrix = [0.30401401 0.12051552 0.12051552 | 0.12051552 0.30401401 0.12051552 | 0.12051552 0.12051552 0.30401401]
 
 new line.line1 length=1 units=m bus1=n1 bus2=n2
@@ -23,7 +23,7 @@ new line.line2 length=1 units=m bus1=n1 bus2=n3
 new line.line3 length=1 units=m bus1=n2 bus2=n3
  ~ rmatrix = [4.360360360360361 3.0522522522522526 2.9069069069069076 | 3.0522522522522526 4.505705705705706 2.9069069069069076 | 2.9069069069069076 2.9069069069069076 4.796396396396397]
  ~ xmatrix = [37.06306306306307 17.441441441441444 14.534534534534536 | 17.441441441441444 36.77237237237238 17.441441441441444 | 14.534534534534536 17.441441441441444 36.336336336336345]
- ~ cmatrix = [ 78.47588258 -73.000821   -58.4006568 | -58.4006568   69.35077995 -51.1005747 | -51.1005747  -58.4006568   45.62551313]
+ ~ cmatrix = [ 78.47588258 -73.000821 -58.4006568 | -58.4006568   69.35077995 -51.1005747 | -51.1005747  -58.4006568   45.62551313]
 
 new line.line4 length=1 units=m bus1=n3 bus2=n4
  ~ rmatrix = [3.633633633633634 1.8894894894894896 1.7441441441441443 | 1.8894894894894896 3.197597597597598 1.4534534534534538 | 1.7441441441441443 1.4534534534534538 3.778978978978979 ]
@@ -42,8 +42,8 @@ new line.line5 length=1 units=m bus1=n4 bus2=n5
 ! ~ wdg=2 bus=n6 conn=wye kV=11 kVA=33300
 
 new transformer.t1 xhl=3.8 %loadloss=0.18
- ~ wdg=1 bus=sourcebus conn=delta kV=11 kVA=33300
- ~ wdg=2 bus=n4 conn=wye kV=220  kVA=33300
+ ~ wdg=1 bus=sourcebus conn=delta kV=11 kVA=33300 tap=1
+ ~ wdg=2 bus=n4 conn=wye kV=220  kVA=33300 tap=1.028
 
 ! REGULATORS
 !new regcontrol.reg1 transformer=reg1 winding=2 vreg=115 band=12
@@ -61,6 +61,6 @@ calcvoltagebases     ! **** let DSS compute voltage bases
 solve
 
 ! Various reports ...
-!show voltages LN Nodes 
+show voltages LN Nodes 
 ! show currents resid=yes elements  ! this shows sum of phase currents
 ! Show Powers kva Elements

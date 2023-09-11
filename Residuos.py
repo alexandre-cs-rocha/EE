@@ -9,31 +9,39 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_
     barra1 = barras['nome_barra'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
-    #baseY = 1
-    for fase in range(3):
+    
+    for fase in fases:
         inj_pot_est = 0
-        tensao_estimada = vet_estados[(num_buses+index_barra)*3+fase]
+        tensao_estimada = vet_estados[(num_buses+index_barra)*3 + fase]
         ang_estimado = vet_estados[(index_barra)*3+fase]
-        if fase in fases:
-            no1 = nodes[barra1+f'.{fase+1}']
-            for index_barra2 in range(len(barras['nome_barra'])):
-                barra2 = barras['nome_barra'][index_barra2]
-                fases2 = barras['Fases'][index_barra2]
-                for m in range(3):
-                    if m in fases2:
-                        no2 = nodes[barra2+f'.{m+1}']
-                        Yij = Ybus[no1, no2] / baseY
-                        if Yij != 0:
-                            Gs = np.real(Yij)
-                            Bs = np.imag(Yij)
-                            tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
-                            ang_estimado2 = vet_estados[(index_barra2)*3+m]
-                            inj_pot_est += tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
+        no1 = nodes[barra1+f'.{fase+1}']
+            
+        for index_barra2 in range(len(barras['nome_barra'])):
+            barra2 = barras['nome_barra'][index_barra2]
+            fases2 = barras['Fases'][index_barra2]
+            
+            for m in fases2:
+                if m in fases2:
+                    no2 = nodes[barra2+f'.{m+1}']
+                    Yij = Ybus[no1, no2] / baseY
+                    
+                    if Yij != 0:
+                        Gs = np.real(Yij)
+                        Bs = np.imag(Yij)
+                        tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3 + m]
+                        ang_estimado2 = vet_estados[(index_barra2)*3+m]
+                        if barra1 == 'n4':
+                            print(barra1, ang_estimado, barra2, tensao_estimada2, ang_estimado2, Gs, Bs)
+                            print(np.sin(ang_estimado-ang_estimado2))
+                        inj_pot_est += tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
+                        if barra1 == 'n4':
+                            print(inj_pot_est)
             
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
 
         inj_pot_est = tensao_estimada*inj_pot_est
-
+        if barra1 == 'n4':
+            print(inj_pot_med, inj_pot_est)
         vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
@@ -46,25 +54,29 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo
     fases = barras['Fases'][index_barra]
     basekv = barras['Bases'][index_barra]
     baseY = baseva / ((basekv*1000)**2)
-    #baseY = 1
     barra1 = barras['nome_barra'][index_barra]
-    for fase in range(3):
+    
+    for fase in fases:
         inj_pot_est = 0
-        tensao_estimada = vet_estados[(num_buses+index_barra)*3+fase]
+        tensao_estimada = vet_estados[(num_buses+index_barra)*3 + fase]
         ang_estimado = vet_estados[(index_barra)*3+fase]
+        
         if fase in fases:
             no1 = nodes[barra1+f'.{fase+1}']
+            
             for index_barra2 in range(len(barras['nome_barra'])):
                 barra2 = barras['nome_barra'][index_barra2]
                 fases2 = barras['Fases'][index_barra2]
-                for m in range(3):
+                
+                for m in fases2:
                     if m in fases2:
                         no2 = nodes[barra2+f'.{m+1}']
                         Yij = Ybus[no1, no2] / baseY
+                        
                         if Yij != 0:
                             Gs = np.real(Yij)
                             Bs = np.imag(Yij)
-                            tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
+                            tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3 + m]
                             ang_estimado2 = vet_estados[(index_barra2)*3+m]
                             inj_pot_est += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
@@ -77,11 +89,12 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo
 
 def Residuo_tensao(vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra: int,
                    barras: pd.DataFrame, num_barras: int) -> int:
-        tensao_estimada = vet_estados[(num_barras+index_barra)*3:(num_barras+index_barra)*3 + 3]
+
         
         for fase in fases:
+            tensao_estimada = vet_estados[(num_barras+index_barra)*3+fase]
             tensao = barras['Tensao'][index_barra][fase]
-            vetor_residuos.append(tensao - tensao_estimada[fase])
+            vetor_residuos.append(tensao - tensao_estimada)
             residuo_atual += 1
             
         return residuo_atual

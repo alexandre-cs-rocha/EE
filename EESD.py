@@ -121,7 +121,7 @@ def iniciar_medidores(elem_inj_pot: list, elem_flux_pot: list, elem_tensao: list
     for i, elem in enumerate(elem_tensao):
         DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'''
 
-def medidas(baseva: int) -> pd.DataFrame:
+def organizar_medidas(baseva: int) -> pd.DataFrame:
     barras = indexar_barras()
 
     num_medidas = 0
@@ -149,8 +149,8 @@ def medidas(baseva: int) -> pd.DataFrame:
                 
             elemento = DSSMonitors.Element
             DSSCircuit.ActiveCktElement.BusNames[1]
-            medidas_at = np.full([3], np.NaN)
-            medidas_rat = np.full([3], np.NaN)
+            medidas_at = np.full([len(fases)], np.NaN)
+            medidas_rat = np.full([len(fases)], np.NaN)
             
             for i, fase in enumerate(fases):
                 medidas_at[fase] = matriz_medidas[i*2]*1000 / baseva
@@ -161,8 +161,8 @@ def medidas(baseva: int) -> pd.DataFrame:
             barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
         
         elif 'pqi' in DSSMonitors.Name:
-            medidas_at = np.zeros(3)
-            medidas_rat = np.zeros(3)
+            medidas_at = np.zeros(len(fases))
+            medidas_rat = np.zeros(len(fases))
             
             for i, fase in enumerate(fases):
                 medidas_at[fase] = matriz_medidas[i*2]
@@ -176,15 +176,18 @@ def medidas(baseva: int) -> pd.DataFrame:
             barras['Inj_pot_rat'][index_barra] = medidas_rat*1000 /baseva
               
         elif 'v' in DSSMonitors.Name:
+            nmed = 3
+            if index_barra == 0:
+                nmed = 1
             if type(barras['Tensao'][index_barra]) != np.ndarray:
-                medidas = np.zeros(3)
+                medidas = np.zeros(len(fases))
 
                 for i, fase in enumerate(fases):
                     medidas[fase] = matriz_medidas[i]
                     
                 basekv = DSSCircuit.Buses.kVBase
                 barras['Tensao'][index_barra] = medidas / (basekv*1000)
-                num_medidas += 3
+                num_medidas += nmed
         
         DSSMonitors.Next
         
@@ -218,8 +221,10 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
             for medida in medidas:
                 dp.append((medida * 0.01) / (3 * 100))
     
-    for medidas in barras['Tensao']:
+    for i, medidas in enumerate(barras['Tensao']):
         if type(medidas) == np.ndarray:
+            if i == 0:
+                medidas = [medidas[0]]
             for medida in medidas:
                 dp.append((medida * 0.002) / (3 * 100))
     
@@ -236,9 +241,10 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
 
 def Calcula_residuo(vet_estados: np.array, baseva: int) -> np.array:
     vetor_residuos = []
-    ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
-    vet_estados_aux = np.concatenate((ang_ref, vet_estados))
-    
+    ang_ref = np.array([-2*np.pi/3, 2*np.pi/3])
+    vet_estados_aux = np.insert(vet_estados, [1], ang_ref+vet_estados[0])
+    vet_estados_aux = np.insert(vet_estados_aux, (DSSCircuit.NumBuses*3+1), [vet_estados_aux[DSSCircuit.NumBuses*3], vet_estados_aux[DSSCircuit.NumBuses*3]])
+
     residuo_atual = 0
     for idx, medida in enumerate(barras['Inj_pot_at']):
         if type(medida) == np.ndarray:
@@ -271,15 +277,18 @@ def Calcula_residuo(vet_estados: np.array, baseva: int) -> np.array:
     for idx, medida in enumerate(barras['Tensao']):
         if type(medida) == np.ndarray:
             fases = np.where((np.isnan(medida) == False))[0]
+            if idx == 0:
+                fases = [0]
             residuo_atual = Residuo_tensao(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx, barras, DSSCircuit.NumBuses)
         
     return np.array(vetor_residuos)
 
 def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: int, baseva: int) -> np.array:
     jacobiana = np.zeros((num_medidas, len(vet_estados)))
-    ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
-    vet_estados_aux = np.concatenate((ang_ref, vet_estados))
-    
+    ang_ref = np.array([-2*np.pi/3, 2*np.pi/3])
+    vet_estados_aux = np.insert(vet_estados, [1], ang_ref+vet_estados[0])
+    vet_estados_aux = np.insert(vet_estados_aux, (DSSCircuit.NumBuses*3+1), [vet_estados_aux[DSSCircuit.NumBuses*3], vet_estados_aux[DSSCircuit.NumBuses*3]])
+
     medida_atual = 0
     for idx, medida in enumerate(barras['Inj_pot_at']):
         if type(medida) == np.ndarray:
@@ -322,7 +331,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
 
         residuo = Calcula_residuo(vet_estados, baseva)
         '''for i in range(len(residuo)):
-            residuo[i] = 10**-5'''
+            residuo[i] = 10**-2'''
         print(residuo)
         #Calcula a matriz ganho
         matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
@@ -342,7 +351,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
 #Achar o path do script do OpenDSS
 path = Path(__file__)
 CurrentFolder = path.parent
-MasterFile = CurrentFolder / '4Bus-YY-Bal' / '4Bus-YY-Bal.DSS'
+MasterFile = CurrentFolder / '6Bus' / 'Caso_teste.dss'
 
 DSSCircuit, DSSText, DSSObj, DSSMonitors = InitializeDSS()
 DSSObj = dss_engine
@@ -361,34 +370,47 @@ iniciar_medidores(elem_inj_pot, elem_flux_pot, elem_tensao)
 
 DSSText.Command = 'Solve'
 
-baseva =  6 * 10**6
+baseva =  33.3 * 10**6
 
-barras, num_medidas = medidas(baseva)
+barras, num_medidas = organizar_medidas(baseva)
 nodes = organizar_nodes()
 
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
-Ybus = Ymatrix(DSSCircuit, baseva)
+DSSCircuit.SetActiveElement('Vsource.source')
+g = DSSCircuit.ActiveCktElement.Yprim[::2]
+b = DSSCircuit.ActiveCktElement.Yprim[1::2]
+y = g+b*1j
+y = y.reshape(6, 6)
+
+for i in range(3):
+    for j in range(3):
+        Ybus[i, j] -= y[i, j]
+        
+#Ybus = Ymatrix(DSSCircuit, baseva)
 
 #Inicializar o vetor de estados com perfil de tensão neutro
-vet_estados = np.zeros(len(barras)*6 - 3)
-for i in range(len(barras)*3 - 3, len(barras)*6 - 3):
+vet_estados = np.zeros(len(barras)*6 - 5)
+for i in range(len(barras)*3 - 3, len(barras)*6 - 5):
     vet_estados[i] = 1
-
+    
 ang = np.array([])
 tensoes = np.array([])
 for barra in DSSCircuit.AllBusNames:
     DSSCircuit.SetActiveBus(barra)
     ang = np.concatenate([ang, DSSCircuit.Buses.puVmagAngle[1::2]*2*np.pi / 360])
     tensoes = np.concatenate([tensoes, DSSCircuit.Buses.puVmagAngle[::2]])
-
+    
+tensoes = np.delete(tensoes, [1, 2])
 gabarito = np.concatenate([ang, tensoes])
-teste = gabarito.copy()
 
-vet_estados = teste[3:]
+ang = gabarito[0]
+teste = gabarito.copy()[3:]
+
+vet_estados = np.insert(teste, [0], [ang])
 
 matriz_pesos = Calcula_pesos(barras, num_medidas)
 
 vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 1)
 
 print(gabarito)
-print(np.concatenate((np.array([0, -2*np.pi/3, 2*np.pi/3]), vet_estados)))
+print(np.insert(vet_estados, [1], [vet_estados[0]-2*np.pi/3, vet_estados[0]+2*np.pi/3]))

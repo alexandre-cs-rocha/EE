@@ -1,14 +1,11 @@
 clear
 
-new circuit.6Bus basekV=11 phases=3 pu = 1.0677 basemva=33.3
+new circuit.6Bus basekV=11 phases=3 pu = 1.0677 basemva=33.3 bus1=n7
 ! **** HAVE TO STIFFEN THE SOURCE UP A LITTLE; THE TEST CASE ASSUMES AN INFINITE BUS
- ~ puZ0 = [0, 0.150] puZ1 = [0, 0.010] puZ2 = [0, 0.09]
-! ~ mvasc3 = 2000000 mvasc1 = 2000000
+! ~ puZ0 = [0, 0.150] puZ1 = [0, 0.010] puZ2 = [0, 0.091]
+ ~ mvasc3 = 20000000000 mvasc1 = 20000000000
 
 ! LINES
-!new line.fake length=1 units=m bus1=sourcebus bus2=n6
-! ~ rmatrix = [2.52133983e-17 -8.49641139e-02  8.49641139e-02 | 8.49641139e-02 -3.78200974e-17 -8.49641139e-02 | -8.49641139e-02  8.49641139e-02 -7.56401948e-17]
-! ~ xmatrix = [0.30401401 0.12051552 0.12051552 | 0.12051552 0.30401401 0.12051552 | 0.12051552 0.12051552 0.30401401]
 
 new line.line1 length=1 units=m bus1=n1 bus2=n2
  ~ rmatrix = [3.3429429429429436 1.7441441441441443 1.598798798798799 | 1.7441441441441443 3.0522522522522526 1.4534534534534538 | 1.598798798798799 1.4534534534534538 3.4882882882882886 ]
@@ -35,6 +32,10 @@ new line.line5 length=1 units=m bus1=n4 bus2=n5
  ~ xmatrix = [50.87087087087088 18.894894894894897 21.801801801801805 | 18.894894894894897 58.138138138138146 21.801801801801805 | 21.801801801801805 21.801801801801805 53.777777777777786 ]
  ~ cmatrix = [ 62.96320812 -29.2003284  -25.55028735 | -29.2003284   64.24072248 -29.2003284 | -25.55028735 -29.2003284   62.59820401]
 
+new line.fake length=1 units=m phases=3 bus1=n6 bus2=n7
+ ~ rmatrix = [ 3.21986604e-11  -8.49640745e-02 8.49640744e-02 | 8.49640744e-02 3.21986188e-11  -8.49640745e-02 | -8.49640745e-02 8.49640744e-02 3.21986882e-11]
+ ~ xmatrix = [0.30401401 0.12051559 0.12051552 | 0.12051552 0.30401401 0.12051559 | 0.12051559 0.12051552 0.30401401]
+
 
 ! TRANSFORMERS
 !new transformer.reg1 xhl=1.65 %loadloss=0.25
@@ -42,25 +43,31 @@ new line.line5 length=1 units=m bus1=n4 bus2=n5
 ! ~ wdg=2 bus=n6 conn=wye kV=11 kVA=33300
 
 new transformer.t1 xhl=3.8 %loadloss=0.18
- ~ wdg=1 bus=sourcebus conn=delta kV=11 kVA=33300 tap=1
+ ~ wdg=1 bus=n6 conn=wye kV=11 kVA=33300 tap=1
  ~ wdg=2 bus=n4 conn=wye kV=220  kVA=33300 tap=1.028
 
 ! REGULATORS
 !new regcontrol.reg1 transformer=reg1 winding=2 vreg=115 band=12
 
 ! LOADS
-new load.load1 phases=3 bus1=n1 conn=wye kV=220 kW=46000 kvar=13000
-new load.load2 phases=3 bus1=n2 conn=wye kV=220 kW=38000 kvar=15000
-new load.load3 phases=3 bus1=n3 conn=wye kV=220 kW=28000 kvar=8000
-new load.load4 phases=3 bus1=n5 conn=wye kV=220 kW=26000 kvar=10000
+new load.load1 phases=3 bus1=n1 conn=wye kV=220 kW=46000 kvar=13000 model=1
+new load.load2 phases=3 bus1=n2 conn=wye kV=220 kW=38000 kvar=15000 model=1
+new load.load3 phases=3 bus1=n3 conn=wye kV=220 kW=28000 kvar=8000 model=1
+new load.load4 phases=3 bus1=n5 conn=wye kV=220 kW=26000 kvar=10000 model=1
+
+!new load.load1 phases=3 bus1=n1 conn=wye kV=220 kW=138000 kvar=39000 model=1
+!new load.load2 phases=3 bus1=n2 conn=wye kV=220 kW=114000 kvar=45000 model=1
+!new load.load3 phases=3 bus1=n3 conn=wye kV=220 kW=84000 kvar=24000 model=1
+!new load.load4 phases=3 bus1=n5 conn=wye kV=220 kW=78000 kvar=30000 model=1
+
 
 
 set voltagebases=[11, 220]
 calcvoltagebases     ! **** let DSS compute voltage bases
-!solve mode = newton
+solve mode = newton
 solve
 
 ! Various reports ...
-show voltages LN Nodes 
+! show voltages LN Nodes 
 ! show currents resid=yes elements  ! this shows sum of phase currents
 ! Show Powers kva Elements

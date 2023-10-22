@@ -10,12 +10,7 @@ from Ymatrix import *
 def achar_index_barra(barras: pd.DataFrame, barra: int) -> int:
     #Retorna o index da barra do monitor ativo
     DSSCircuit.SetActiveElement(DSSMonitors.Element)
-    #print(DSSMonitors.Element)
     
-    #Verifica se é o objeto Vsource.source e retorna a primeira barra se for
-    #if DSSCircuit.ActiveCktElement.Name == 'Vsource.source':
-        #return 0
-
     DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[barra])
     nome = DSSCircuit.Buses.Name
     
@@ -77,7 +72,6 @@ def indexar_barras() -> pd.DataFrame:
     barras['nome_barra'] = nomes
     barras.loc[idx, 'Bases'] = bases
     barras.loc[idx, 'Geracao'] = geracao
-    #print(barras)
 
     return barras
 
@@ -135,7 +129,7 @@ def iniciar_medidores(elem_inj_pot: list, elem_flux_pot: list, elem_tensao: list
     for i, elem in enumerate(elem_tensao):
         DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'''
 
-def medidas(baseva: int) -> pd.DataFrame:
+def medidas(baseva: int) -> pd.DataFrame: 
     barras = indexar_barras()
 
     num_medidas = 0
@@ -175,8 +169,8 @@ def medidas(baseva: int) -> pd.DataFrame:
             barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
         
         elif 'pqi' in DSSMonitors.Name:
-            medidas_at = np.zeros(len(fases))
-            medidas_rat = np.zeros(len(fases))
+            medidas_at = np.zeros(3)
+            medidas_rat = np.zeros(3)
             
             for i, fase in enumerate(fases):
                 medidas_at[fase] = matriz_medidas[i*2]
@@ -187,7 +181,7 @@ def medidas(baseva: int) -> pd.DataFrame:
               
         elif 'v' in DSSMonitors.Name:
             if type(barras['Tensao'][index_barra]) != np.ndarray:
-                medidas = np.zeros(len(fases))
+                medidas = np.zeros(3)
 
                 for i, fase in enumerate(fases):
                     medidas[fase] = matriz_medidas[i]
@@ -199,6 +193,60 @@ def medidas(baseva: int) -> pd.DataFrame:
         DSSMonitors.Next
         
     return barras, num_medidas
+
+def Conserta_Ybus(Ybus):
+    DSSCircuit.Transformers.First
+    for _ in range(DSSCircuit.Transformers.Count):
+        trafo = DSSCircuit.Transformers.Name
+        DSSCircuit.SetActiveElement(trafo)
+        num_phases = DSSCircuit.ActiveCktElement.NumPhases
+        barras_conectadas = DSSCircuit.ActiveCktElement.BusNames
+        DSSCircuit.SetActiveBus(barras_conectadas[0])
+        basekv1 = DSSCircuit.Buses.kVBase
+        DSSCircuit.SetActiveBus(barras_conectadas[1])
+        basekv2 = DSSCircuit.Buses.kVBase
+        if '.' in barras_conectadas[0] or '.' in barras_conectadas[1]:
+            barras_conectadas[0] = barras_conectadas[0].split('.')[0]
+            barras_conectadas[1] = barras_conectadas[1].split('.')[0]
+        no1 = nodes[f"{barras_conectadas[0]}.{1}"]
+        no2 = nodes[f"{barras_conectadas[1]}.{1}"]
+        
+        if basekv1 > basekv2:
+            n = basekv1 / basekv2
+            Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])/n
+            Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])*n
+        else:
+            n = basekv2 / basekv1
+            Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])*n
+            Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])/n
+            
+        DSSCircuit.Transformers.Next
+
+    DSSCircuit.Loads.First
+    if DSSCircuit.Loads.IsDelta: #Caso carga em delta
+        pass
+    else: #Caso carga em estrela
+        DSSMonitors.First
+        for _ in range(DSSMonitors.Count):
+            elemento = DSSMonitors.Element
+            
+            if 'load' in elemento:
+                DSSCircuit.SetActiveElement(elemento)
+                Yij = (DSSCircuit.Loads.kW - DSSCircuit.Loads.kvar*1j)*1000 / ((DSSCircuit.Loads.kV*1000)**2)
+                barra_correspondente = DSSCircuit.ActiveCktElement.BusNames[0]
+
+                for k in DSSCircuit.Buses.Nodes:
+                    no1 = nodes[f"{barra_correspondente}.{k}"]
+                    Ybus[no1, no1] -= Yij
+
+                DSSCircuit.Loads.Next
+
+            if DSSMonitors.Next == None: #Critério de parada
+                break
+            
+    Ybus[:3, :3] = -Ybus[18:, :3]
+
+    return Ybus
 
 def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
     dp = []
@@ -324,73 +372,33 @@ def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: 
 def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, baseva:int, erro_max: float, lim_iter: int) -> np.array:
     k = 0
     delx = 1
-    while(np.max(np.abs(delx)) > erro_max):
-        if k >= lim_iter:
-            break
+    while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
 
         residuo = Calcula_residuo(vet_estados, baseva)
-        '''for i in range(len(residuo)):
-            residuo[i] = 10**-5'''
-        print(residuo)
         
+        print(residuo)
 
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
-        jacobianapd = pd.DataFrame(jacobiana)
-        pd.DataFrame.to_excel(jacobianapd, r"C:\Users\souza\OneDrive\Documentos\Unb\pibic\EE-main\jacobiana.xlsx")
 
         #Calcula a matriz ganho
-        matriz_ganho = np.dot(np.dot(jacobiana.T, matriz_pesos), jacobiana)
+        matriz_ganho = jacobiana.T @ matriz_pesos @ jacobiana
         
         #Calcula o outro lado da Equação normal
-        seinao = np.dot(np.dot(jacobiana.T, matriz_pesos), residuo)
+        seinao = jacobiana.T @ matriz_pesos @ residuo
 
-        delx = np.dot(np.linalg.inv(matriz_ganho), seinao)
+        delx = np.linalg.inv(matriz_ganho) @ seinao
         
         #Atualiza o vetor de estados
         vet_estados += delx
         
         k += 1
-        
+        print(k)
     return vet_estados
-
-def Conserta_Ybus(Ybus: sp.sparse.csc_matrix) -> sp.sparse.csc_matrix:
-    if DSSCircuit.Loads.First != 0: #Confere se tem carga
-        if DSSCircuit.Loads.IsDelta: #Caso carga em delta
-            pass
-        else: #Caso carga em estrela
-            DSSMonitors.First
-            for i in range(DSSMonitors.Count):
-                elemento = DSSMonitors.Element
-                if 'load' in elemento:
-                    DSSCircuit.SetActiveElement(elemento)
-                    #print(DSSCircuit.ActiveCktElement.Name)
-                    Yij = (DSSCircuit.Loads.kW - DSSCircuit.Loads.kvar*1j)*1000 / ((DSSCircuit.Loads.kV*1000)**2)
-                    #print((Yij))
-                    barra_correspondente = DSSCircuit.ActiveCktElement.BusNames[0]
-                    #print(barra_correspondente)
-                    #print(DSSCircuit.Buses.Nodes)
-
-                    for k in DSSCircuit.Buses.Nodes:
-                        no1 = nodes[f"{barra_correspondente}.{k}"]
-                        #print(f"{barra_correspondente}.{k}")
-                        #print(f"Antes: {Ybus[no1, no1]}")
-                        Ybus[no1, no1] -= Yij
-                        #print(f"Depois: {Ybus[no1,no1]}")
-
-                    DSSCircuit.Loads.Next
-
-                if DSSMonitors.Next == None: #Critério de parada
-                    break
-
-    else: #Caso não tenha carga
-        pass
-
-    return Ybus
 
 #Achar o path do script do OpenDSS
 path = Path(__file__)
 CurrentFolder = path.parent
-MasterFile = CurrentFolder / 'Caso_teste.DSS'
+MasterFile = CurrentFolder / '6Bus' / 'Caso_teste.dss'
 
 DSSCircuit, DSSText, DSSObj, DSSMonitors = InitializeDSS()
 DSSObj = dss_engine
@@ -439,7 +447,7 @@ vet_estados = teste
 
 matriz_pesos = Calcula_pesos(barras, num_medidas)
 
-vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 1)
+vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 10) 
 
 print(gabarito)
 print(vet_estados)

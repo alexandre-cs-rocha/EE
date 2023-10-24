@@ -188,7 +188,7 @@ def medidas(baseva: int) -> pd.DataFrame:
                     
                 basekv = DSSCircuit.Buses.kVBase
                 barras['Tensao'][index_barra] = medidas / (basekv*1000)
-                num_medidas += len(fases)
+                num_medidas += 3
         
         DSSMonitors.Next
         
@@ -243,8 +243,14 @@ def Conserta_Ybus(Ybus):
 
             if DSSMonitors.Next == None: #Critério de parada
                 break
-            
-    Ybus[:3, :3] = -Ybus[18:, :3]
+        
+    DSSCircuit.SetActiveElement('Vsource.source')
+    Yprim = DSSCircuit.ActiveCktElement.Yprim
+    real = Yprim[::2]
+    imag = Yprim[1::2]*1j
+    Yprim = real+imag
+    Yprim = np.reshape(Yprim, (6, 6))
+    Ybus[:3, :3] -= Yprim[:3, :3]
 
     return Ybus
 
@@ -279,6 +285,9 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
     for medidas in barras['Tensao']:
         if type(medidas) == np.ndarray:
             for medida in medidas:
+                if medida == 0:
+                    dp.append(1/10**5)
+                    continue
                 dp.append((medida * 0.002) / (3 * 100))
     
     dp = np.array(dp)**-2
@@ -375,7 +384,6 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
     while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
 
         residuo = Calcula_residuo(vet_estados, baseva)
-        
         print(residuo)
 
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
@@ -447,7 +455,7 @@ vet_estados = teste
 
 matriz_pesos = Calcula_pesos(barras, num_medidas)
 
-vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 10) 
+vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 10)
 
 print(gabarito)
 print(vet_estados)

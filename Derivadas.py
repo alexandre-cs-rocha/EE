@@ -58,8 +58,7 @@ def Derivadas_inj_pot_at(jacobiana: np.array, medida_atual: int, index_barra: in
                 Gs = np.real(Yij) 
                 Bs = np.imag(Yij) 
                 if no1 == no2:
-                    delta = ((tensao_estimada**2)*Gs+medidas[fase]) / tensao_estimada
-
+                    delta = ((tensao_estimada**2)*Gs+barras['Inj_pot_at_est'][index_barra][fase]) / tensao_estimada
                 else:
                     ang_estimado2 = vet_estados[(index_barra2)*3+m]
                     delta = tensao_estimada*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
@@ -97,8 +96,8 @@ def Derivadas_inj_pot_at(jacobiana: np.array, medida_atual: int, index_barra: in
             for m in fases2:
                 no2 = nodes[barra2+f'.{m+1}']
                 Yij = Ybus[no1, no2] / baseY
-                Gs = np.real(Yij) 
-                Bs = np.imag(Yij) 
+                Gs = np.real(Yij)
+                Bs = np.imag(Yij)
                 if no1 == no2:
                     delta = -Bs*(tensao_estimada**2)
                     delta2 = 0
@@ -147,7 +146,7 @@ def Derivadas_inj_pot_rat(jacobiana: np.array, medida_atual: int, index_barra: i
                 Gs = np.real(Yij)
                 Bs = np.imag(Yij)
                 if no1 == no2:
-                    delta = (-(tensao_estimada**2)*(Bs)+medidas[fase]) / tensao_estimada
+                    delta = ((tensao_estimada**2)*(-Bs)+barras['Inj_pot_rat_est'][index_barra][fase]) / tensao_estimada
                 else:
                     ang_estimado2 = vet_estados[(index_barra2)*3+m]
                     delta = tensao_estimada*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
@@ -156,7 +155,7 @@ def Derivadas_inj_pot_rat(jacobiana: np.array, medida_atual: int, index_barra: i
 
         #Derivadas de injeção de potência reativa com relação aos ângulos
         for index_barra2 in range(len(barras['nome_barra'])):
-            if index_barra2 != 0:
+            if index_barra2 != 6:
                 barra2 = barras['nome_barra'][index_barra2]
                 fases2 = barras['Fases'][index_barra2]
                 for m in fases2:
@@ -165,9 +164,8 @@ def Derivadas_inj_pot_rat(jacobiana: np.array, medida_atual: int, index_barra: i
                     Gs = np.real(Yij)
                     Bs = np.imag(Yij)
                     if no1 == no2:
-                        medida_at = barras['Inj_pot_at'][index_barra][fase]
+                        medida_at = barras['Inj_pot_at_est'][index_barra][fase]
                         delta = -Gs*(tensao_estimada**2) + medida_at
-
                     else:
                         tensao_estimada2 = vet_estados[(num_buses+index_barra2)*3+m]
                         ang_estimado2 = vet_estados[(index_barra2)*3+m]

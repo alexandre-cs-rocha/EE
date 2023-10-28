@@ -47,31 +47,27 @@ def indexar_barras() -> pd.DataFrame:
     #Designa indíces às barras
     nomes = []
     bases = []
-    geracao = []
     for barra in DSSCircuit.AllBusNames:
         #if barra.isdigit(): è possível que o sourcebus e o reg não entrem para a EE
         DSSCircuit.SetActiveBus(barra)
-        g = False
-        #print(DSSCircuit.Buses.AllPCEatBus)
-        for elem in DSSCircuit.Buses.AllPCEatBus:
-            if 'Vsource' in elem:
-                g = True
         #Base é em fase-neutro
         base = DSSCircuit.Buses.kVBase
         nomes.append(barra)
         bases.append(base)
-        geracao.append(g)
 
     nomes = np.concatenate([nomes[1:], [nomes[0]]])
     bases = np.concatenate([bases[1:], [bases[0]]])
-    geracao = np.concatenate([geracao[1:], [geracao[0]]])
 
     idx = [i for i in range(len(nomes))]
-    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao', 'Geracao'],
+    inicial1 = [[0, 0, 0] for _ in range(len(nomes))]
+    inicial2 = [[0, 0, 0] for _ in range(len(nomes))]
+    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao', 'Inj_pot_at_est', 'Inj_pot_rat_est'],
                           index=idx)
     barras['nome_barra'] = nomes
     barras.loc[idx, 'Bases'] = bases
-    barras.loc[idx, 'Geracao'] = geracao
+    for i in idx:
+        barras['Inj_pot_at_est'][i] = inicial1[i]
+        barras['Inj_pot_rat_est'][i] = inicial2[i]
 
     return barras
 
@@ -188,7 +184,7 @@ def medidas(baseva: int) -> pd.DataFrame:
                     
                 basekv = DSSCircuit.Buses.kVBase
                 barras['Tensao'][index_barra] = medidas / (basekv*1000)
-                num_medidas += 3
+                num_medidas += len(fases)
         
         DSSMonitors.Next
         
@@ -243,7 +239,7 @@ def Conserta_Ybus(Ybus):
 
             if DSSMonitors.Next == None: #Critério de parada
                 break
-        
+            
     DSSCircuit.SetActiveElement('Vsource.source')
     Yprim = DSSCircuit.ActiveCktElement.Yprim
     real = Yprim[::2]
@@ -285,9 +281,6 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
     for medidas in barras['Tensao']:
         if type(medidas) == np.ndarray:
             for medida in medidas:
-                if medida == 0:
-                    dp.append(1/10**5)
-                    continue
                 dp.append((medida * 0.002) / (3 * 100))
     
     dp = np.array(dp)**-2
@@ -384,7 +377,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
     while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
 
         residuo = Calcula_residuo(vet_estados, baseva)
-        print(residuo)
+        print(residuo)  
 
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
@@ -433,10 +426,16 @@ nodes = organizar_nodes()
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
 Ybus = Conserta_Ybus(Ybus)
 
+
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(len(barras)*6)
 for i in range(len(barras)*3, len(barras)*6):
     vet_estados[i] = 1
+
+for i in range(len(barras)*3):
+    if (i+1) % 3 == 0:
+        vet_estados[i-1] = -120 * 2 * np.pi / 360
+        vet_estados[i] = 120 * 2 * np.pi / 360
 
 ang = np.array([])
 tensoes = np.array([])
@@ -451,11 +450,31 @@ tensoes = np.concatenate([tensoes[3:], tensoes[0:3]])
 gabarito = np.concatenate([ang, tensoes])
 teste = gabarito.copy()
 
-vet_estados = teste
+#vet_estados = teste
 
 matriz_pesos = Calcula_pesos(barras, num_medidas)
-
-vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 10)
+vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 100)
 
 print(gabarito)
 print(vet_estados)
+
+baseY = baseva / (((220 / np.sqrt(3))*1000)**2)
+
+Y = []
+for i in range(9):
+    Yij = Ybus[3, 3+i]
+    Y.append(Yij)
+    
+Y = np.array(Y, dtype=np.complex128) / baseY
+
+Gs = np.real(Y)
+Bs = np.imag(Y)
+
+tensoes = np.array([1.0803, 0.92039, 0.84265, 1.0765, 0.92209, 0.84027, 1.0763, 0.93445, 0.84105])
+tensoes = vet_estados[21:30]
+
+angs = (12.6 - np.array([12.6, -120.3, 131.6, 12.4, -120.5, 131.4, 12.7, -120.1, 132.1])) * (2 * np.pi / 360)
+angs = vet_estados[0] - vet_estados[:9]
+
+'''print(((-Bs[0]) * (tensoes[0] ** 2)) - (tensoes[0] * np.sum(tensoes*(Gs*np.sin(angs) - Bs*np.cos(angs)))))
+print((tensoes[0]**2*Gs[0]+barras['Inj_pot_at_est'][0][0]) / tensoes[0])'''

@@ -37,6 +37,7 @@ def Residuo_inj_pot_at(vetor_residuos: np.array, vet_estados: np.array, residuo_
             
         inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
         inj_pot_est = tensao_estimada*inj_pot_est
+        barras['Inj_pot_at_est'][index_barra][fase] = inj_pot_est
         vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1
@@ -77,6 +78,7 @@ def Residuo_inj_pot_rat(vetor_residuos: np.array, vet_estados: np.array, residuo
                             
         inj_pot_med = barras['Inj_pot_rat'][index_barra][fase]
         inj_pot_est = tensao_estimada*inj_pot_est
+        barras['Inj_pot_rat_est'][index_barra][fase] = inj_pot_est
         vetor_residuos.append(inj_pot_med - inj_pot_est)
     
     residuo_atual += 1

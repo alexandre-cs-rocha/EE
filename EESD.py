@@ -250,7 +250,14 @@ def Conserta_Ybus(Ybus):
 
     return Ybus
 
-def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
+def gera_medida_imperfeita(num_medidas: int, media: float, desvio_padrao: np.array) -> np.array:
+    # Gerar fatores aleatórios com base na distribuição normal
+    fatores = np.random.normal(media, desvio_padrao, num_medidas)
+    
+    for i, medidas in enumerate(barras['Inj_pot_at']):
+        barras['Inj_pot_at'][i] = medidas + medidas * fatores[i*3:(i+1)*3]
+
+def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> tuple:
     dp = []
     for medidas in barras['Inj_pot_at']:
         if type(medidas) == np.ndarray:
@@ -283,16 +290,17 @@ def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> np.array:
             for medida in medidas:
                 dp.append((medida * 0.002) / (3 * 100))
     
-    dp = np.array(dp)**-2
+    dp = np.abs(dp)
+    dp1 = np.array(dp)**-2
     aux = []
-    for x in dp:
+    for x in dp1:
         if x > 10**10:
             x = 10**10
         aux.append(x)
          
     matriz_pesos = np.diag(aux)
     
-    return matriz_pesos
+    return matriz_pesos, dp
 
 def Calcula_residuo(vet_estados: np.array, baseva: int) -> np.array:
     vetor_residuos = []
@@ -376,8 +384,7 @@ def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, base
     delx = 1
     while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
 
-        residuo = Calcula_residuo(vet_estados, baseva)
-        print(residuo)  
+        residuo = Calcula_residuo(vet_estados, baseva) 
 
         jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
 
@@ -423,9 +430,12 @@ baseva =  33.3 * 10**6
 barras, num_medidas = medidas(baseva)
 nodes = organizar_nodes()
 
+matriz_pesos, des_padrao = Calcula_pesos(barras, num_medidas)
+
+gera_medida_imperfeita(num_medidas, 0, des_padrao)
+
 Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
 Ybus = Conserta_Ybus(Ybus)
-
 
 #Inicializar o vetor de estados com perfil de tensão neutro
 vet_estados = np.zeros(len(barras)*6)
@@ -452,29 +462,7 @@ teste = gabarito.copy()
 
 #vet_estados = teste
 
-matriz_pesos = Calcula_pesos(barras, num_medidas)
-vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 100)
+vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-5, 100)
 
 print(gabarito)
 print(vet_estados)
-
-baseY = baseva / (((220 / np.sqrt(3))*1000)**2)
-
-Y = []
-for i in range(9):
-    Yij = Ybus[3, 3+i]
-    Y.append(Yij)
-    
-Y = np.array(Y, dtype=np.complex128) / baseY
-
-Gs = np.real(Y)
-Bs = np.imag(Y)
-
-tensoes = np.array([1.0803, 0.92039, 0.84265, 1.0765, 0.92209, 0.84027, 1.0763, 0.93445, 0.84105])
-tensoes = vet_estados[21:30]
-
-angs = (12.6 - np.array([12.6, -120.3, 131.6, 12.4, -120.5, 131.4, 12.7, -120.1, 132.1])) * (2 * np.pi / 360)
-angs = vet_estados[0] - vet_estados[:9]
-
-'''print(((-Bs[0]) * (tensoes[0] ** 2)) - (tensoes[0] * np.sum(tensoes*(Gs*np.sin(angs) - Bs*np.cos(angs)))))
-print((tensoes[0]**2*Gs[0]+barras['Inj_pot_at_est'][0][0]) / tensoes[0])'''

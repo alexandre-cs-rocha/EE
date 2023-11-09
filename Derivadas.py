@@ -155,7 +155,7 @@ def Derivadas_inj_pot_rat(jacobiana: np.array, medida_atual: int, index_barra: i
 
         #Derivadas de injeção de potência reativa com relação aos ângulos
         for index_barra2 in range(len(barras['nome_barra'])):
-            if index_barra2 != 3:
+            if index_barra2 != 6:
                 barra2 = barras['nome_barra'][index_barra2]
                 fases2 = barras['Fases'][index_barra2]
                 for m in fases2:

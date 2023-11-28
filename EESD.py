@@ -5,9 +5,9 @@ import timeit
 
 from pathlib import Path
 from dss import DSS as dss_engine
-from Jacobana import Jacobiana
+from Jacobiana import Jacobiana
 from Residuos import Residuo
-from Pos_filtragem import Pos_filtragem
+from Filtragem import Pos_filtragem, Pre_filtragem
 
 class EE():
     def __init__(self, master_path, baseva: float = 10**6) -> None:
@@ -425,6 +425,13 @@ gabarito = np.concatenate([ang[3:], tensoes[3:]])
 
 print(gabarito)
 print(vet_estados)
+
+pre_fitragem = Pre_filtragem()
+
+medidas_tensao = pre_fitragem.vetoriza_medidas_tensao(eesd.barras)
+medidas_tensao = np.insert(medidas_tensao, 10, 1.5)
+
+print(pre_fitragem.mad_based_outlier(medidas_tensao, 3.5))
 
 '''filtragem = Pos_filtragem(eesd.vet_estados, eesd.jacobiana, eesd.residuo, eesd.barras,
                           eesd.num_medidas, eesd.matriz_pesos, eesd.dp)

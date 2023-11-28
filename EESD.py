@@ -1,503 +1,439 @@
 import numpy as np
 import pandas as pd
 import scipy as sp
+import timeit
+
 from pathlib import Path
 from dss import DSS as dss_engine
-from Derivadas import *
-from Residuos import *
+from Jacobana import Jacobiana
+from Residuos import Residuo
+from Pos_filtragem import Pos_filtragem
 
-def achar_index_barra(barras: pd.DataFrame, barra: int) -> int:
-    #Retorna o index da barra do monitor ativo
-    DSSCircuit.SetActiveElement(DSSMonitors.Element)
-    
-    DSSCircuit.SetActiveBus(DSSCircuit.ActiveCktElement.BusNames[barra])
-    nome = DSSCircuit.Buses.Name
-    
-    return barras.index[barras['nome_barra'] == nome].to_list()[0]
+class EE():
+    def __init__(self, master_path, baseva: float = 10**6) -> None:
+        self.DSSCircuit, self.DSSText, self.DSSObj, self.DSSMonitors = self.InitializeDSS()
+        self.baseva = baseva
+        self.MasterFile = master_path
 
-def reshape(matriz) -> np.array:
-    #Transforma as matrizes 1x1 e 2x2 em uma matriz 3x3 de acordo com suas fases
-    matriz2 = np.zeros((3, 3))
-    fase1 = DSSCircuit.ActiveCktElement.NodeOrder[0]-1
-    #Diferencia as matrizes pelo seu tamanho total
-    if len(matriz) == 1:
-        matriz2[fase1][fase1] = matriz[0]
-        return matriz2
+    def resolve_fluxo_carga(self):
+        self.DSSText.Command = 'Clear'
+        self.DSSText.Command = f'Compile {self.MasterFile}'
 
-    fase2 = DSSCircuit.ActiveCktElement.NodeOrder[1]-1
-    if len(matriz) == 4:
-        matriz2[fase1][fase1] = matriz[0]
-        matriz2[fase1][fase2] = matriz[1]
-        matriz2[fase2][fase1] = matriz[2]
-        matriz2[fase2][fase2] = matriz[3]
-    else:
-        matriz2 = matriz.reshape(3, 3)
-    
-    return matriz2
+        self.iniciar_medidores()
 
-def organizar_nodes() -> dict:
-    nodes = {}
-    for i, node in enumerate(DSSCircuit.YNodeOrder):
-        nodes[node.lower()] = i
-    
-    return nodes
+        self.DSSText.Command = 'Solve'
 
-def indexar_barras() -> pd.DataFrame:
-    #Designa indíces às barras
-    nomes = []
-    bases = []
-    geracao = []
-    for barra in DSSCircuit.AllBusNames:
-        #if barra.isdigit(): è possível que o sourcebus e o reg não entrem para a EE
-        DSSCircuit.SetActiveBus(barra)
-        #Base é em fase-neutro
-        base = DSSCircuit.Buses.kVBase
-        nomes.append(barra)
-        bases.append(base)
-        geracao.append(DSSCircuit.Buses.AllPCEatBus[0] == 'Vsource.source')
-
-    nomes = np.concatenate([nomes[1:], [nomes[0]]])
-    bases = np.concatenate([bases[1:], [bases[0]]])
-    geracao = np.concatenate([geracao[1:], [geracao[0]]])
-
-    idx = [i for i in range(len(nomes))]
-    inicial1 = [[0, 0, 0] for _ in range(len(nomes))]
-    inicial2 = [[0, 0, 0] for _ in range(len(nomes))]
-    
-    barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao', 'Inj_pot_at_est', 'Inj_pot_rat_est', 'Geracao'],
-                          index=idx)
-    
-    barras['nome_barra'] = nomes
-    barras.loc[idx, 'Bases'] = bases
-    barras.loc[idx, 'Geracao'] = geracao
-    
-    for i in idx:
-        barras['Inj_pot_at_est'][i] = inicial1[i]
-        barras['Inj_pot_rat_est'][i] = inicial2[i]
-
-    return barras
-
-def pegar_fases() -> np.array:
-    fases = DSSCircuit.ActiveCktElement.NodeOrder - 1
-    fases = set(fases)
-    fases.discard(-1)
-    
-    return fases
-
-def InitializeDSS() -> tuple:
-    DSSObj = dss_engine
-    flag = DSSObj.Start(0)
-    if flag:
-        print('OpenDSS COM Interface initialized succesfully.')
-        
-    else:
-        print('OpenDSS COMInterface failed to start.')
-        
-    #Set up the interface variables - Comunication OpenDSS with Python
-    DSSText = DSSObj.Text
-    DSSCircuit = DSSObj.ActiveCircuit
-    DSSMonitors = DSSCircuit.Monitors
+    def InitializeDSS(self) -> tuple:
+        DSSObj = dss_engine
+        flag = DSSObj.Start(0)
+        if flag:
+            print('OpenDSS COM Interface initialized succesfully.')
             
-    return DSSCircuit, DSSText, DSSObj, DSSMonitors
-
-def iniciar_medidores(elem_inj_pot: list, elem_flux_pot: list, elem_tensao: list) -> None:
-    for i, barra in enumerate(DSSCircuit.AllBusNames):
-        DSSCircuit.SetActiveBus(barra)
-        for j, elem in enumerate(DSSCircuit.Buses.AllPCEatBus):
-            if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
-                DSSText.Command = f'New Monitor.pqi{i}{j} element={elem}, terminal=1, mode=1, ppolar=no'
-                
-        elem = DSSCircuit.Buses.AllPDEatBus[0]
-        if elem != 'None':
-            DSSCircuit.SetActiveElement(elem)
-            if DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0] == barra:
-                DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'
-                
-            elif DSSCircuit.ActiveCktElement.BusNames[1].split('.')[0] == barra:
-                DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=2, mode=32'
-                
-            else:
-                print('Deu errado')
-
-    '''#Incia medidores para Injeção de Potência
-    for i, elem in enumerate(elem_inj_pot):
-        DSSText.Command = f'New Monitor.pqi{i} element={elem}, terminal=1, mode=1'
-    
-    #Incia medidores para Fluxo de Potência
-    for i, elem in enumerate(elem_flux_pot):
-        DSSText.Command = f'New Monitor.pqij{i} element={elem}, terminal=1, mode=1'
-        
-    #Incia medidores para Módulo de Tensão
-    for i, elem in enumerate(elem_tensao):
-        DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'''
-
-def medidas(baseva: int) -> pd.DataFrame: 
-    barras = indexar_barras()
-    
-    num_medidas = 0
-    for idx in range(len(DSSCircuit.AllBusNames)):
-        if not barras['Geracao'][idx]:
-            barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
-            barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
-            num_medidas += 6
-    
-    #Amostra e salva os valores dos medidores no sistema
-    DSSMonitors.SampleAll()
-    DSSMonitors.SaveAll()
-
-    DSSMonitors.First
-    for _ in range(DSSMonitors.Count):
-        barra = DSSMonitors.Terminal - 1
-        index_barra = achar_index_barra(barras, barra)
-        fases = pegar_fases()
-        barras['Fases'][index_barra] = fases
-        matriz_medidas = DSSMonitors.AsMatrix()[0][2:]
-        
-        if 'pqij' in DSSMonitors.Name:
-            if type(barras['Flux_pot_at'][index_barra]) != list and type(barras['Flux_pot_rat'][index_barra]) != list:
-                barras['Flux_pot_at'][index_barra] = []
-                barras['Flux_pot_rat'][index_barra] = []
-                
-            elemento = DSSMonitors.Element
-            DSSCircuit.ActiveCktElement.BusNames[1]
-            medidas_at = np.full([3], np.NaN)
-            medidas_rat = np.full([3], np.NaN)
-            
-            for i, fase in enumerate(fases):
-                medidas_at[fase] = matriz_medidas[i*2]*1000 / baseva
-                medidas_rat[fase] = matriz_medidas[i*2+1]*1000 / baseva
-                num_medidas += 2
-                
-            barras['Flux_pot_at'][index_barra].append((elemento, medidas_at))
-            barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
-        
-        elif 'pqi' in DSSMonitors.Name:
-            medidas_at = np.zeros(3)
-            medidas_rat = np.zeros(3)
-            
-            for i, fase in enumerate(fases):
-                medidas_at[fase] = matriz_medidas[i*2]
-                medidas_rat[fase] = matriz_medidas[i*2+1]
-                
-            barras['Inj_pot_at'][index_barra] = -medidas_at*1000 / baseva
-            barras['Inj_pot_rat'][index_barra] = -medidas_rat*1000 / baseva
-              
-        elif 'v' in DSSMonitors.Name:
-            if type(barras['Tensao'][index_barra]) != np.ndarray:
-                medidas = np.zeros(3)
-
-                for i, fase in enumerate(fases):
-                    medidas[fase] = matriz_medidas[i]
-   
-                basekv = DSSCircuit.Buses.kVBase
-                barras['Tensao'][index_barra] = medidas / (basekv*1000)
-                if not barras['Geracao'][index_barra]:
-                    num_medidas += 3
-        
-        DSSMonitors.Next
-        
-    return barras, num_medidas
-
-def Conserta_Ybus(Ybus):
-    DSSCircuit.Transformers.First
-    for _ in range(DSSCircuit.Transformers.Count):
-        trafo = DSSCircuit.Transformers.Name
-        DSSCircuit.SetActiveElement(trafo)
-        num_phases = DSSCircuit.ActiveCktElement.NumPhases
-        barras_conectadas = DSSCircuit.ActiveCktElement.BusNames
-        DSSCircuit.SetActiveBus(barras_conectadas[0])
-        basekv1 = DSSCircuit.Buses.kVBase
-        DSSCircuit.SetActiveBus(barras_conectadas[1])
-        basekv2 = DSSCircuit.Buses.kVBase
-        if '.' in barras_conectadas[0] or '.' in barras_conectadas[1]:
-            barras_conectadas[0] = barras_conectadas[0].split('.')[0]
-            barras_conectadas[1] = barras_conectadas[1].split('.')[0]
-        no1 = nodes[f"{barras_conectadas[0]}.{1}"]
-        no2 = nodes[f"{barras_conectadas[1]}.{1}"]
-        
-        if basekv1 > basekv2:
-            n = basekv1 / basekv2
-            Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])/n
-            Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])*n
         else:
-            n = basekv2 / basekv1
-            Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])*n
-            Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])/n
+            print('OpenDSS COMInterface failed to start.')
             
-        DSSCircuit.Transformers.Next
-
-    DSSCircuit.Loads.First
-    if DSSCircuit.Loads.IsDelta: #Caso carga em delta
-        pass
-    else: #Caso carga em estrela
-        DSSMonitors.First
-        for _ in range(DSSMonitors.Count):
-            elemento = DSSMonitors.Element
-            
-            if 'load' in elemento:
-                DSSCircuit.SetActiveElement(elemento)
-                Yij = (DSSCircuit.Loads.kW - DSSCircuit.Loads.kvar*1j)*1000 / ((DSSCircuit.Loads.kV*1000)**2)
-                barra_correspondente = DSSCircuit.ActiveCktElement.BusNames[0]
-
-                for k in DSSCircuit.Buses.Nodes:
-                    no1 = nodes[f"{barra_correspondente}.{k}"]
-                    Ybus[no1, no1] -= Yij
-
-                DSSCircuit.Loads.Next
-
-            if DSSMonitors.Next == None: #Critério de parada
-                break
-            
-    DSSCircuit.SetActiveElement('Vsource.source')
-    Yprim = DSSCircuit.ActiveCktElement.Yprim
-    real = Yprim[::2]
-    imag = Yprim[1::2]*1j
-    Yprim = real+imag
-    Yprim = np.reshape(Yprim, (6, 6))
-    Ybus[:3, :3] -= Yprim[:3, :3]
-
-    return Ybus
-
-def gera_medida_imperfeita(num_medidas: int, media: float, desvio_padrao: np.array) -> np.array:
-    # Gerar fatores aleatórios com base na distribuição normal
-    fatores = np.random.normal(media, desvio_padrao, num_medidas)
-    
-    for i, medidas in enumerate(barras['Inj_pot_at']):
-        barras['Inj_pot_at'][i] = medidas + medidas * fatores[i*3:(i+1)*3]
-
-def Calcula_pesos(barras: pd.DataFrame, num_medidas: int) -> tuple:
-    dp = []
-    for medidas, geracao in zip(barras['Inj_pot_at'], barras['Geracao']):
-        if type(medidas) == np.ndarray and not geracao:
-            for medida in medidas:
-                if medida == 0:
-                    dp.append(1/10**5)
-                    continue
-                dp.append((medida * 0.01) / (3 * 100))
-    
-    for medidas, geracao in zip(barras['Inj_pot_rat'], barras['Geracao']):
-        if type(medidas) == np.ndarray and not geracao:
-            for medida in medidas:
-                if medida == 0:
-                    dp.append(1/10**5)
-                    continue
-                dp.append((medida * 0.01) / (3 * 100))
+        #Set up the interface variables - Comunication OpenDSS with Python
+        DSSText = DSSObj.Text
+        DSSCircuit = DSSObj.ActiveCircuit
+        DSSMonitors = DSSCircuit.Monitors
                 
-    for medidas in barras['Flux_pot_at']:
-        if type(medidas) == list:
-            for medida in medidas:
-                dp.append((medida * 0.01) / (3 * 100))
+        return DSSCircuit, DSSText, DSSObj, DSSMonitors
+
+    def iniciar_medidores(self) -> None:
+        for i, barra in enumerate(self.DSSCircuit.AllBusNames):
+            self.DSSCircuit.SetActiveBus(barra)
+            for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
+                if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
+                    self.DSSText.Command = f'New Monitor.pqi{i}{j} element={elem}, terminal=1, mode=1, ppolar=no'
+                    
+            elem = self.DSSCircuit.Buses.AllPDEatBus[0]
+            if elem != 'None':
+                self.DSSCircuit.SetActiveElement(elem)
+                if self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0] == barra:
+                    self.DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=1, mode=32'
+                    
+                elif self.DSSCircuit.ActiveCktElement.BusNames[1].split('.')[0] == barra:
+                    self.DSSText.Command = f'New Monitor.v{i} element={elem}, terminal=2, mode=32'
+                    
+                else:
+                    print('Deu errado')
+
+    def organizar_nodes(self) -> dict:
+        nodes = {}
+        for i, node in enumerate(self.DSSCircuit.YNodeOrder):
+            nodes[node.lower()] = i
+        
+        return nodes
+
+    def indexar_barras(self) -> pd.DataFrame:
+        #Designa indíces às barras
+        nomes = []
+        bases = []
+        geracao = []
+        for barra in self.DSSCircuit.AllBusNames:
+            #if barra.isdigit(): è possível que o sourcebus e o reg não entrem para a EE
+            self.DSSCircuit.SetActiveBus(barra)
+            #Base é em fase-neutro
+            base = self.DSSCircuit.Buses.kVBase
+            nomes.append(barra)
+            bases.append(base)
+            geracao.append(self.DSSCircuit.Buses.AllPCEatBus[0] == 'Vsource.source')
+
+        nomes = np.concatenate([nomes[1:], [nomes[0]]])
+        bases = np.concatenate([bases[1:], [bases[0]]])
+        geracao = np.concatenate([geracao[1:], [geracao[0]]])
+
+        idx = [i for i in range(len(nomes))]
+        inicial1 = [[0, 0, 0] for _ in range(len(nomes))]
+        inicial2 = [[0, 0, 0] for _ in range(len(nomes))]
+        
+        barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao', 'Inj_pot_at_est', 'Inj_pot_rat_est', 'Geracao'],
+                            index=idx)
+        
+        barras['nome_barra'] = nomes
+        barras.loc[idx, 'Bases'] = bases
+        barras.loc[idx, 'Geracao'] = geracao
+        
+        for i in idx:
+            barras['Inj_pot_at_est'][i] = inicial1[i]
+            barras['Inj_pot_rat_est'][i] = inicial2[i]
+
+        return barras
+
+    def gera_medida_imperfeita(self, media: float, desvio_padrao: np.array) -> None:
+        # Gerar fatores aleatórios com base na distribuição normal
+        fatores = np.random.normal(media, desvio_padrao, self.num_medidas)
+        
+        for i, medidas in enumerate(self.barras['Inj_pot_at']):
+            self.barras['Inj_pot_at'][i] = medidas + medidas * fatores[i*3:(i+1)*3]
+
+    def iniciar_vet_estados(self) -> np.array:
+        vet_estados = np.zeros((len(self.barras)-1)*6)
+        for i in range((len(self.barras)-1)*3, (len(self.barras)-1)*6):
+            vet_estados[i] = 1
+
+        for i in range((len(self.barras)-1)*3):
+            if (i+1) % 3 == 0:
+                vet_estados[i-1] = -120 * 2 * np.pi / 360
+                vet_estados[i] = 120 * 2 * np.pi / 360
                 
-    for medidas in barras['Flux_pot_rat']:
-        if type(medidas) == list:
-            for medida in medidas:
-                dp.append((medida * 0.01) / (3 * 100))
+        return vet_estados
     
-    for medidas, geracao in zip(barras['Tensao'], barras['Geracao']):
-        if type(medidas) == np.ndarray and not geracao:
-            for medida in medidas:
-                if medida == 0:
-                    dp.append(1/10**5)
-                    continue
-                dp.append((medida * 0.002) / (3 * 100))
-    
-    dp = np.abs(dp)
-    dp1 = np.array(dp)**-2
-    aux = []
-    for x in dp1:
-        if x > 10**10:
-            x = 10**10
-        aux.append(x)
-         
-    matriz_pesos = np.diag(aux)
-    
-    return matriz_pesos, dp
-
-def Calcula_residuo(vet_estados: np.array, baseva: int) -> np.array:
-    vetor_residuos = []
-    
-    #Verificar se tem um jeito mas eficiente de contar
-    count = 0
-    for g in barras['Geracao']:
-        if g==True:
-            count+=1
-    
-    angs = vet_estados[:(DSSCircuit.NumBuses-count)*3]
-    tensoes = vet_estados[(DSSCircuit.NumBuses-count)*3:]
-    ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
-    tensoes_ref = barras['Tensao'][DSSCircuit.NumBuses-1]
-    angs = np.concatenate((angs, ang_ref))
-    tensoes = np.concatenate((tensoes, tensoes_ref))
-    vet_estados_aux = np.concatenate((angs, tensoes))
-    
-    residuo_atual = 0
-    for idx, medida in enumerate(barras['Inj_pot_at']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            fases = np.where((np.isnan(medida) == False))[0]
-            residuo_atual = Residuo_inj_pot_at(vetor_residuos, vet_estados_aux, residuo_atual, idx, DSSCircuit.NumBuses,
-                                               barras, baseva, nodes, Ybus)
-
-    for idx, medida in enumerate(barras['Inj_pot_rat']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            fases = np.where((np.isnan(medida) == False))[0]
-            residuo_atual = Residuo_inj_pot_rat(vetor_residuos, vet_estados_aux, residuo_atual, idx, DSSCircuit.NumBuses,
-                                                barras, baseva, nodes, Ybus)
-            
-    for idx1, medidas in enumerate(barras['Flux_pot_at']):
-        if type(medidas) == list:
-            for medida in medidas:
-                elemento = medida[0]
-                fases = np.where((np.isnan(medida[1]) == False))[0]
-                residuo_atual = Residuo_fluxo_pot_at(vetor_residuos, vet_estados, fases, residuo_atual, idx1, elemento,
-                                                     baseva, barras, DSSCircuit, nodes, Ybus)
-            
-    for idx1, medidas in enumerate(barras['Flux_pot_rat']):
-        if type(medidas) == list:
-            for medida in medidas:
-                elemento = medida[0]
-                fases = np.where((np.isnan(medida[1]) == False))[0]
-                residuo_atual = Residuo_fluxo_pot_rat(vetor_residuos, vet_estados, fases, residuo_atual, idx1, elemento,
-                                                      baseva, barras, DSSCircuit, nodes, Ybus)
-            
-    for idx, medida in enumerate(barras['Tensao']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            fases = np.where((np.isnan(medida) == False))[0]
-            residuo_atual = Residuo_tensao(vetor_residuos, vet_estados_aux, fases, residuo_atual, idx, barras, DSSCircuit.NumBuses)
+    def achar_index_barra(self, barras: pd.DataFrame, barra: int) -> int:
+        #Retorna o index da barra do monitor ativo
+        self.DSSCircuit.SetActiveElement(self.DSSMonitors.Element)
         
-    return np.array(vetor_residuos)
+        self.DSSCircuit.SetActiveBus(self.DSSCircuit.ActiveCktElement.BusNames[barra])
+        nome = self.DSSCircuit.Buses.Name
+        
+        return barras.index[barras['nome_barra'] == nome].to_list()[0]
 
-def Calcula_Jacobiana(barras: pd.DataFrame, vet_estados: np.array, num_medidas: int, baseva: int) -> np.array:
-    jacobiana = np.zeros((num_medidas, len(vet_estados)))
+    def pegar_fases(self) -> np.array:
+        fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+        fases = set(fases)
+        fases.discard(-1)
+        
+        return fases
 
-    #Verificar se tem uma forma mais eficiente de contar
-    count = 0
-    for g in barras['Geracao']:
-        if g==True:
-            count+=1
-    
-    angs = vet_estados[:(DSSCircuit.NumBuses-count)*3]
-    tensoes = vet_estados[(DSSCircuit.NumBuses-count)*3:]
-    ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
-    tensoes_ref = barras['Tensao'][DSSCircuit.NumBuses-1]
-    angs = np.concatenate((angs, ang_ref))
-    tensoes = np.concatenate((tensoes, tensoes_ref))
-    vet_estados_aux = np.concatenate((angs, tensoes))
-    
-    medida_atual = 0
-    for idx, medida in enumerate(barras['Inj_pot_at']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            medida_atual = Derivadas_inj_pot_at(jacobiana, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
-                                                nodes, medida, Ybus, baseva, count)
-    
-    for idx, medida in enumerate(barras['Inj_pot_rat']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            medida_atual = Derivadas_inj_pot_rat(jacobiana, medida_atual, idx, DSSCircuit.NumBuses, vet_estados_aux, barras,
-                                                nodes, medida, Ybus, baseva, count)
+    def medidas(self, baseva: int) -> pd.DataFrame: 
+        barras = self.indexar_barras()
+        
+        num_medidas = 0
+        for idx in range(len(self.DSSCircuit.AllBusNames)):
+            if not barras['Geracao'][idx]:
+                barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
+                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
+                num_medidas += 6
+        
+        #Amostra e salva os valores dos medidores no sistema
+        self.DSSMonitors.SampleAll()
+        self.DSSMonitors.SaveAll()
+
+        self.DSSMonitors.First
+        for _ in range(self.DSSMonitors.Count):
+            barra = self.DSSMonitors.Terminal - 1
+            index_barra = self.achar_index_barra(barras, barra)
+            fases = self.pegar_fases()
+            barras['Fases'][index_barra] = fases
+            matriz_medidas = self.DSSMonitors.AsMatrix()[0][2:]
             
-    for idx1, medida in enumerate(barras['Flux_pot_at']):
-        if type(medida) == list:
-            elemento = medida[0][0]
-            fases = np.where((np.isnan(medida[0][1]) == False))[0]
-            medida_atual = Derivadas_fluxo_pot_at(jacobiana, fases, medida_atual, idx1, elemento, barras, nodes, vet_estados,
-                                                  DSSCircuit, Ybus, baseva)
+            if 'pqij' in self.DSSMonitors.Name:
+                if type(barras['Flux_pot_at'][index_barra]) != list and type(barras['Flux_pot_rat'][index_barra]) != list:
+                    barras['Flux_pot_at'][index_barra] = []
+                    barras['Flux_pot_rat'][index_barra] = []
+                    
+                elemento = self.DSSMonitors.Element
+                self.DSSCircuit.ActiveCktElement.BusNames[1]
+                medidas_at = np.full([3], np.NaN)
+                medidas_rat = np.full([3], np.NaN)
+                
+                for i, fase in enumerate(fases):
+                    medidas_at[fase] = matriz_medidas[i*2]*1000 / baseva
+                    medidas_rat[fase] = matriz_medidas[i*2+1]*1000 / baseva
+                    num_medidas += 2
+                    
+                barras['Flux_pot_at'][index_barra].append((elemento, medidas_at))
+                barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
             
-    for idx1, medida in enumerate(barras['Flux_pot_rat']):
-        if type(medida) == list:
-            elemento = medida[0][0]
-            fases = np.where((np.isnan(medida[0][1]) == False))[0]
-            medida_atual = Derivadas_fluxo_pot_rat(jacobiana, fases, medida_atual, idx1, elemento, barras, nodes, vet_estados,
-                                                  DSSCircuit, Ybus, baseva)
+            elif 'pqi' in self.DSSMonitors.Name:
+                medidas_at = np.zeros(3)
+                medidas_rat = np.zeros(3)
+                
+                for i, fase in enumerate(fases):
+                    medidas_at[fase] = matriz_medidas[i*2]
+                    medidas_rat[fase] = matriz_medidas[i*2+1]
+                    
+                barras['Inj_pot_at'][index_barra] = -medidas_at*1000 / baseva
+                barras['Inj_pot_rat'][index_barra] = -medidas_rat*1000 / baseva
+                
+            elif 'v' in self.DSSMonitors.Name:
+                if type(barras['Tensao'][index_barra]) != np.ndarray:
+                    medidas = np.zeros(3)
+
+                    for i, fase in enumerate(fases):
+                        medidas[fase] = matriz_medidas[i]
+    
+                    basekv = self.DSSCircuit.Buses.kVBase
+                    barras['Tensao'][index_barra] = medidas / (basekv*1000)
+                    if not barras['Geracao'][index_barra]:
+                        num_medidas += 3
             
-    for idx, medida in enumerate(barras['Tensao']):
-        if type(medida) == np.ndarray and not barras['Geracao'][idx]:
-            medida_atual = Derivadas_tensao(jacobiana, barras, medida_atual, idx, DSSCircuit.NumBuses, count)
-        
-    return jacobiana
+            self.DSSMonitors.Next
+            
+        return barras, num_medidas
 
-def EE(barras: pd.DataFrame, vet_estados: np.array, matriz_pesos: np.array, baseva:int, erro_max: float, lim_iter: int) -> np.array:
-    k = 0
-    delx = 1
-    while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
+    def Conserta_Ybus(self, Ybus):
+        self.DSSCircuit.Transformers.First
+        for _ in range(self.DSSCircuit.Transformers.Count):
+            trafo = self.DSSCircuit.Transformers.Name
+            self.DSSCircuit.SetActiveElement(trafo)
+            num_phases = self.DSSCircuit.ActiveCktElement.NumPhases
+            barras_conectadas = self.DSSCircuit.ActiveCktElement.BusNames
+            self.DSSCircuit.SetActiveBus(barras_conectadas[0])
+            basekv1 = self.DSSCircuit.Buses.kVBase
+            self.DSSCircuit.SetActiveBus(barras_conectadas[1])
+            basekv2 = self.DSSCircuit.Buses.kVBase
+            if '.' in barras_conectadas[0] or '.' in barras_conectadas[1]:
+                barras_conectadas[0] = barras_conectadas[0].split('.')[0]
+                barras_conectadas[1] = barras_conectadas[1].split('.')[0]
+                
+            no1 = self.nodes[f"{barras_conectadas[0]}.{1}"]
+            no2 = self.nodes[f"{barras_conectadas[1]}.{1}"]
+            
+            if basekv1 > basekv2:
+                n = basekv1 / basekv2
+                Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])/n
+                Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])*n
+            else:
+                n = basekv2 / basekv1
+                Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])*n
+                Ybus[no2:no2+num_phases, no1:no1+num_phases] = (Ybus[no2:no2+num_phases, no1:no1+num_phases])/n
+                
+            self.DSSCircuit.Transformers.Next
 
-        residuo = Calcula_residuo(vet_estados, baseva)
+        self.DSSCircuit.Loads.First
+        if self.DSSCircuit.Loads.IsDelta: #Caso carga em delta
+            pass
+        else: #Caso carga em estrela
+            self.DSSMonitors.First
+            for _ in range(self.DSSMonitors.Count):
+                elemento = self.DSSMonitors.Element
+                
+                if 'load' in elemento:
+                    self.DSSCircuit.SetActiveElement(elemento)
+                    Yij = (self.DSSCircuit.Loads.kW - self.DSSCircuit.Loads.kvar*1j)*1000 / ((self.DSSCircuit.Loads.kV*1000)**2)
+                    barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0]
 
-        jacobiana = Calcula_Jacobiana(barras, vet_estados, num_medidas, baseva)
-        jacobianapd = pd.DataFrame(jacobiana)
-        pd.DataFrame.to_csv(jacobianapd, CurrentFolder / 'jacobiana.csv')
-        
-        #Calcula a matriz ganho
-        matriz_ganho = jacobiana.T @ matriz_pesos @ jacobiana
-        
-        #Calcula o outro lado da Equação normal
-        seinao = jacobiana.T @ matriz_pesos @ residuo
+                    for k in self.DSSCircuit.Buses.Nodes:
+                        no1 = self.nodes[f"{barra_correspondente}.{k}"]
+                        Ybus[no1, no1] -= Yij
 
-        delx = np.linalg.inv(matriz_ganho) @ seinao
+                    self.DSSCircuit.Loads.Next
+
+                if self.DSSMonitors.Next == None: #Critério de parada
+                    break
+                
+        self.DSSCircuit.SetActiveElement('Vsource.source')
+        Yprim = self.DSSCircuit.ActiveCktElement.Yprim
+        real = Yprim[::2]
+        imag = Yprim[1::2]*1j
+        Yprim = real+imag
+        Yprim = np.reshape(Yprim, (6, 6))
+        Ybus[:3, :3] -= Yprim[:3, :3]
+
+        return Ybus
+
+    def Calcula_pesos(self) -> tuple:
+        inj_pot_at = np.vstack(self.barras['Inj_pot_at'].to_numpy()).flatten()
+        inj_pot_rat = np.vstack(self.barras['Inj_pot_rat'].to_numpy()).flatten()
+        tensao = np.vstack(self.barras['Tensao'].to_numpy()).flatten()
         
-        #Atualiza o vetor de estados
-        vet_estados += delx
+        dp = np.concatenate([inj_pot_at[:-3], inj_pot_rat[:-3], tensao[:-3]])
+
+        pesos = (dp * 0.01) / (3 * 100)
+        pesos[pesos == 0] = 10**-5
+        pesos = pesos**-2
+        pesos[pesos > 10**10] = 10**10
+            
+        matriz_pesos = np.diag(pesos)
         
-        k += 1
-        print(k)
-    return vet_estados
+        return matriz_pesos, np.abs(dp)
+    
+    def Calcula_residuo(self) -> np.array:
+        vetor_residuos = []
+        residuo = Residuo()
+        count = self.barras['Geracao'].value_counts()[1]
+        
+        angs = self.vet_estados[:(self.DSSCircuit.NumBuses-count)*3]
+        tensoes = self.vet_estados[(self.DSSCircuit.NumBuses-count)*3:]
+        ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
+        tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1]
+        angs = np.concatenate((angs, ang_ref))
+        tensoes = np.concatenate((tensoes, tensoes_ref))
+        vet_estados_aux = np.concatenate((angs, tensoes))
+        
+        for idx, medida in enumerate(self.barras['Inj_pot_at']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                fases = np.where((np.isnan(medida) == False))[0]
+                residuo.Residuo_inj_pot_at(vetor_residuos, vet_estados_aux, idx, self.DSSCircuit.NumBuses, self.barras, baseva, self.nodes, self.Ybus)
+
+        for idx, medida in enumerate(self.barras['Inj_pot_rat']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                fases = np.where((np.isnan(medida) == False))[0]
+                residuo.Residuo_inj_pot_rat(vetor_residuos, vet_estados_aux, idx, self.DSSCircuit.NumBuses, self.barras, baseva, self.nodes, self.Ybus)
+                
+        for idx1, medidas in enumerate(self.barras['Flux_pot_at']):
+            if type(medidas) == list:
+                for medida in medidas:
+                    elemento = medida[0]
+                    fases = np.where((np.isnan(medida[1]) == False))[0]
+                    residuo.Residuo_fluxo_pot_at(vetor_residuos, vet_estados, fases, idx1, elemento, 
+                                        baseva, self.barras, self.DSSCircuit, self.nodes, self.Ybus)
+                
+        for idx1, medidas in enumerate(self.barras['Flux_pot_rat']):
+            if type(medidas) == list:
+                for medida in medidas:
+                    elemento = medida[0]
+                    fases = np.where((np.isnan(medida[1]) == False))[0]
+                    residuo.Residuo_fluxo_pot_rat(vetor_residuos, vet_estados, fases, idx1, elemento, 
+                                        baseva, self.barras, self.DSSCircuit, self.nodes, self.Ybus)
+                
+        for idx, medida in enumerate(self.barras['Tensao']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                fases = np.where((np.isnan(medida) == False))[0]
+                residuo.Residuo_tensao(vetor_residuos, vet_estados_aux, fases, idx, self.barras, self.DSSCircuit.NumBuses)
+            
+        return np.array(vetor_residuos)
+
+    def Calcula_Jacobiana(self) -> np.array:
+        jacobiana = np.zeros((self.num_medidas, len(self.vet_estados)))
+        
+        jac = Jacobiana()
+
+        count = self.barras['Geracao'].value_counts()[1]
+        
+        angs = self.vet_estados[:(self.DSSCircuit.NumBuses-count)*3]
+        tensoes = self.vet_estados[(self.DSSCircuit.NumBuses-count)*3:]
+        ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
+        tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1]
+        angs = np.concatenate((angs, ang_ref))
+        tensoes = np.concatenate((tensoes, tensoes_ref))
+        vet_estados_aux = np.concatenate((angs, tensoes))
+        
+        medida_atual = 0
+        for idx, medida in enumerate(self.barras['Inj_pot_at']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                medida_atual = jac.Derivadas_inj_pot_at(jacobiana, medida_atual, idx, self.DSSCircuit.NumBuses, vet_estados_aux, self.barras,
+                                                    self.nodes, self.Ybus, baseva, count)
+        
+        for idx, medida in enumerate(self.barras['Inj_pot_rat']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                medida_atual = jac.Derivadas_inj_pot_rat(jacobiana, medida_atual, idx, self.DSSCircuit.NumBuses, vet_estados_aux, self.barras,
+                                                    self.nodes, self.Ybus, baseva, count)
+                
+        for idx1, medida in enumerate(self.barras['Flux_pot_at']):
+            if type(medida) == list:
+                elemento = medida[0][0]
+                fases = np.where((np.isnan(medida[0][1]) == False))[0]
+                medida_atual = jac.Derivadas_fluxo_pot_at(jacobiana, fases, medida_atual, idx1, elemento, self.barras, self.nodes, vet_estados_aux,
+                                                    self.DSSCircuit, self.Ybus, baseva)
+                
+        for idx1, medida in enumerate(self.barras['Flux_pot_rat']):
+            if type(medida) == list:
+                elemento = medida[0][0]
+                fases = np.where((np.isnan(medida[0][1]) == False))[0]
+                medida_atual = jac.Derivadas_fluxo_pot_rat(jacobiana, fases, medida_atual, idx1, elemento, self.barras, self.nodes, vet_estados_aux,
+                                                    self.DSSCircuit, self.Ybus, baseva)
+                
+        for idx, medida in enumerate(self.barras['Tensao']):
+            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
+                medida_atual = jac.Derivadas_tensao(jacobiana, self.barras, medida_atual, idx, self.DSSCircuit.NumBuses, count)
+            
+        return jacobiana
+
+    def run(self, erro_max: float, lim_iter: int) -> np.array:
+        self.resolve_fluxo_carga()
+        
+        self.barras, self.num_medidas = self.medidas(self.baseva)
+        self.vet_estados = self.iniciar_vet_estados()
+        self.nodes = self.organizar_nodes()
+        
+        Ybus = sp.sparse.csc_matrix(self.DSSObj.YMatrix.GetCompressedYMatrix())
+        self.Ybus = self.Conserta_Ybus(Ybus)
+        
+        k = 0
+        delx = 1
+        while(np.max(np.abs(delx)) > erro_max and lim_iter > k):
+
+            self.residuo = self.Calcula_residuo()
+
+            self.jacobiana = self.Calcula_Jacobiana()
+            
+            self.matriz_pesos, self.dp = self.Calcula_pesos()
+            
+            #Calcula a matriz ganho
+            matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
+            
+            #Calcula o outro lado da Equação normal
+            seinao = self.jacobiana.T @ self.matriz_pesos @ self.residuo
+
+            delx = np.linalg.inv(matriz_ganho) @ seinao
+            
+            #Atualiza o vetor de estados
+            self.vet_estados += delx
+            
+            k += 1
+
+        return self.vet_estados
 
 #Achar o path do script do OpenDSS
 path = Path(__file__)
 CurrentFolder = path.parent
 MasterFile = CurrentFolder / '6Bus' / 'Caso_teste.dss'
 
-DSSCircuit, DSSText, DSSObj, DSSMonitors = InitializeDSS()
-DSSObj = dss_engine
-DSSText = DSSObj.Text
-DSSCircuit = DSSObj.ActiveCircuit
-DSSMonitors = DSSCircuit.Monitors
-
-DSSText.Command = 'Clear'
-DSSText.Command = f'Compile {MasterFile}'
-
-elem_inj_pot = []
-elem_flux_pot = []
-elem_tensao = []
-
-iniciar_medidores(elem_inj_pot, elem_flux_pot, elem_tensao)
-
-DSSText.Command = 'Solve'
-
 baseva =  33.3 * 10**6
 
-barras, num_medidas = medidas(baseva)
-nodes = organizar_nodes()
+eesd = EE(MasterFile, baseva)
 
-matriz_pesos, des_padrao = Calcula_pesos(barras, num_medidas)
+#gera_medida_imperfeita(num_medidas, 0, des_padrao)
 
-gera_medida_imperfeita(num_medidas, 0, des_padrao)
+time = timeit.timeit(lambda: eesd.run(10**-5, 10), number=1)
+print(time)
 
-Ybus = sp.sparse.csc_matrix(DSSObj.YMatrix.GetCompressedYMatrix())
-Ybus = Conserta_Ybus(Ybus)
-
-#Inicializar o vetor de estados com perfil de tensão neutro
-vet_estados = np.zeros((len(barras)-1)*6)
-for i in range((len(barras)-1)*3, (len(barras)-1)*6):
-    vet_estados[i] = 1
-
-for i in range((len(barras)-1)*3):
-    if (i+1) % 3 == 0:
-        vet_estados[i-1] = -120 * 2 * np.pi / 360
-        vet_estados[i] = 120 * 2 * np.pi / 360
+vet_estados = eesd.run(10**-5, 10)
 
 ang = np.array([])
 tensoes = np.array([])
-for barra in DSSCircuit.AllBusNames:
-    DSSCircuit.SetActiveBus(barra)
-    ang = np.concatenate([ang, DSSCircuit.Buses.puVmagAngle[1::2]*2*np.pi / 360])
-    tensoes = np.concatenate([tensoes, DSSCircuit.Buses.puVmagAngle[::2]])
-
+for barra in eesd.DSSCircuit.AllBusNames:
+    eesd.DSSCircuit.SetActiveBus(barra)
+    ang = np.concatenate([ang, eesd.DSSCircuit.Buses.puVmagAngle[1::2]*2*np.pi / 360])
+    tensoes = np.concatenate([tensoes, eesd.DSSCircuit.Buses.puVmagAngle[::2]])
 
 gabarito = np.concatenate([ang[3:], tensoes[3:]])
-teste = gabarito.copy()
 
-#vet_estados = teste
+filtragem = Pos_filtragem(eesd.vet_estados, eesd.jacobiana, eesd.residuo, eesd.barras,
+                          eesd.num_medidas, eesd.matriz_pesos, eesd.dp)
 
-vet_estados = EE(barras, vet_estados, matriz_pesos, baseva, 10**-3, 10)
+text = filtragem.teste_maior_residuo()
 
-print(gabarito)
-print(vet_estados)
+print(text)

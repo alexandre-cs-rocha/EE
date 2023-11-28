@@ -32,18 +32,18 @@ new line.line5 length=1 units=m bus1=n4 bus2=n5
  ~ xmatrix = [50.87087087087088 18.894894894894897 21.801801801801805 | 18.894894894894897 58.138138138138146 21.801801801801805 | 21.801801801801805 21.801801801801805 53.777777777777786 ]
  ~ cmatrix = [ 62.96320812 -29.2003284  -25.55028735 | -29.2003284   64.24072248 -29.2003284 | -25.55028735 -29.2003284   62.59820401]
 
-new line.fake length=1 units=m phases=3 bus1=n6 bus2=n7
+ new line.fake length=1 units=m phases=3 bus1=n6 bus2=n7
  ~ rmatrix = [ 3.21986604e-11  -8.49640745e-02 8.49640744e-02 | 8.49640744e-02 3.21986188e-11  -8.49640745e-02 | -8.49640745e-02 8.49640744e-02 3.21986882e-11]
  ~ xmatrix = [0.30401401 0.12051559 0.12051552 | 0.12051552 0.30401401 0.12051559 | 0.12051559 0.12051552 0.30401401]
 
 
 ! TRANSFORMERS
-!new transformer.reg1 xhl=1.65 %loadloss=0.25
+! new transformer.reg1 xhl=1.65 %loadloss=0.25
 ! ~ wdg=1 bus=sourcebus conn=wye kV=11 kVA=33300
 ! ~ wdg=2 bus=n6 conn=wye kV=11 kVA=33300
 
 new transformer.t1 xhl=3.8 %loadloss=0.18
- ~ wdg=1 bus=n6 conn=wye kV=11 kVA=33300 tap=1
+ ~ wdg=1 bus=n6 conn=delta kV=11 kVA=33300 tap=1
  ~ wdg=2 bus=n4 conn=wye kV=220  kVA=33300 tap=1.028
 
 ! REGULATORS

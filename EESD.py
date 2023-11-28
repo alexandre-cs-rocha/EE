@@ -100,9 +100,9 @@ class EE():
 
         return barras
 
-    def gera_medida_imperfeita(self, media: float, desvio_padrao: np.array) -> None:
+    def gera_medida_imperfeita(self, media: float) -> None:
         # Gerar fatores aleatórios com base na distribuição normal
-        fatores = np.random.normal(media, desvio_padrao, self.num_medidas)
+        fatores = np.random.normal(media, self.dp, self.num_medidas)
         
         for i, medidas in enumerate(self.barras['Inj_pot_at']):
             self.barras['Inj_pot_at'][i] = medidas + medidas * fatores[i*3:(i+1)*3]
@@ -268,11 +268,11 @@ class EE():
         inj_pot_rat = np.vstack(self.barras['Inj_pot_rat'].to_numpy()).flatten()
         tensao = np.vstack(self.barras['Tensao'].to_numpy()).flatten()
         
-        dp = np.concatenate([inj_pot_at[:-3], inj_pot_rat[:-3], tensao[:-3]])
+        medidas = np.concatenate([inj_pot_at[:-3], inj_pot_rat[:-3], tensao[:-3]])
 
-        pesos = (dp * 0.01) / (3 * 100)
-        pesos[pesos == 0] = 10**-5
-        pesos = pesos**-2
+        dp = (medidas * 0.01) / (3 * 100)
+        dp[dp == 0] = 10**-5
+        pesos = dp**-2
         pesos[pesos > 10**10] = 10**10
             
         matriz_pesos = np.diag(pesos)
@@ -280,7 +280,6 @@ class EE():
         return matriz_pesos, np.abs(dp)
     
     def Calcula_residuo(self) -> np.array:
-        vetor_residuos = []
         residuo = Residuo()
         count = self.barras['Geracao'].value_counts()[1]
         
@@ -292,22 +291,20 @@ class EE():
         tensoes = np.concatenate((tensoes, tensoes_ref))
         vet_estados_aux = np.concatenate((angs, tensoes))
         
-        for idx, medida in enumerate(self.barras['Inj_pot_at']):
-            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                fases = np.where((np.isnan(medida) == False))[0]
-                residuo.Residuo_inj_pot_at(vetor_residuos, vet_estados_aux, idx, self.DSSCircuit.NumBuses, self.barras, baseva, self.nodes, self.Ybus)
+        for idx, geracao in enumerate(self.barras['Geracao']):
+            if not geracao:
+                residuo.Residuo_inj_pot_at(vet_estados_aux, idx, self.barras, self.DSSCircuit.NumBuses, baseva, self.nodes, self.Ybus)
 
-        for idx, medida in enumerate(self.barras['Inj_pot_rat']):
-            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                fases = np.where((np.isnan(medida) == False))[0]
-                residuo.Residuo_inj_pot_rat(vetor_residuos, vet_estados_aux, idx, self.DSSCircuit.NumBuses, self.barras, baseva, self.nodes, self.Ybus)
+                residuo.Residuo_inj_pot_rat(vet_estados_aux, idx, self.barras, self.DSSCircuit.NumBuses, baseva, self.nodes, self.Ybus)
+                
+                residuo.Residuo_tensao(vet_estados_aux, idx, self.barras, self.DSSCircuit.NumBuses)
                 
         for idx1, medidas in enumerate(self.barras['Flux_pot_at']):
             if type(medidas) == list:
                 for medida in medidas:
                     elemento = medida[0]
                     fases = np.where((np.isnan(medida[1]) == False))[0]
-                    residuo.Residuo_fluxo_pot_at(vetor_residuos, vet_estados, fases, idx1, elemento, 
+                    residuo.Residuo_fluxo_pot_at(vet_estados, fases, idx1, elemento, 
                                         baseva, self.barras, self.DSSCircuit, self.nodes, self.Ybus)
                 
         for idx1, medidas in enumerate(self.barras['Flux_pot_rat']):
@@ -315,15 +312,10 @@ class EE():
                 for medida in medidas:
                     elemento = medida[0]
                     fases = np.where((np.isnan(medida[1]) == False))[0]
-                    residuo.Residuo_fluxo_pot_rat(vetor_residuos, vet_estados, fases, idx1, elemento, 
+                    residuo.Residuo_fluxo_pot_rat(vet_estados, fases, idx1, elemento, 
                                         baseva, self.barras, self.DSSCircuit, self.nodes, self.Ybus)
-                
-        for idx, medida in enumerate(self.barras['Tensao']):
-            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                fases = np.where((np.isnan(medida) == False))[0]
-                residuo.Residuo_tensao(vetor_residuos, vet_estados_aux, fases, idx, self.barras, self.DSSCircuit.NumBuses)
             
-        return np.array(vetor_residuos)
+        return np.concatenate([residuo.vet_inj_at, residuo.vet_inj_rat, residuo.vet_tensao])
 
     def Calcula_Jacobiana(self) -> np.array:
         jacobiana = np.zeros((self.num_medidas, len(self.vet_estados)))
@@ -391,6 +383,8 @@ class EE():
             
             self.matriz_pesos, self.dp = self.Calcula_pesos()
             
+            self.gera_medida_imperfeita(0)
+            
             #Calcula a matriz ganho
             matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
             
@@ -415,8 +409,6 @@ baseva =  33.3 * 10**6
 
 eesd = EE(MasterFile, baseva)
 
-#gera_medida_imperfeita(num_medidas, 0, des_padrao)
-
 time = timeit.timeit(lambda: eesd.run(10**-5, 10), number=1)
 print(time)
 
@@ -431,9 +423,12 @@ for barra in eesd.DSSCircuit.AllBusNames:
 
 gabarito = np.concatenate([ang[3:], tensoes[3:]])
 
-filtragem = Pos_filtragem(eesd.vet_estados, eesd.jacobiana, eesd.residuo, eesd.barras,
+print(gabarito)
+print(vet_estados)
+
+'''filtragem = Pos_filtragem(eesd.vet_estados, eesd.jacobiana, eesd.residuo, eesd.barras,
                           eesd.num_medidas, eesd.matriz_pesos, eesd.dp)
 
 text = filtragem.teste_maior_residuo()
 
-print(text)
+print(text)'''

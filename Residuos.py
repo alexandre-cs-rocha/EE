@@ -3,10 +3,12 @@ import pandas as pd
 
 class Residuo():
     def __init__(self) -> None:
-        pass
+        self.vet_inj_at = []
+        self.vet_inj_rat = []
+        self.vet_tensao = []
 
-    def Residuo_inj_pot_at(self, vetor_residuos: np.array, vet_estados: np.array, index_barra: int,
-                        num_buses: int, barras: pd.DataFrame, baseva, nodes: dict, Ybus) -> int:
+    def Residuo_inj_pot_at(self, vet_estados: np.array, index_barra: int, barras: pd.DataFrame, num_buses: int, 
+                           baseva, nodes: dict, Ybus) -> int:
 
         fases = barras['Fases'][index_barra]
         barra1 = barras['nome_barra'][index_barra]
@@ -41,10 +43,10 @@ class Residuo():
             inj_pot_med = barras['Inj_pot_at'][index_barra][fase]
             inj_pot_est = tensao_estimada*inj_pot_est
             barras['Inj_pot_at_est'][index_barra][fase] = inj_pot_est
-            vetor_residuos.append(inj_pot_med - inj_pot_est)
+            self.vet_inj_at.append(inj_pot_med - inj_pot_est)
         
-    def Residuo_inj_pot_rat(self, vetor_residuos: np.array, vet_estados: np.array, index_barra: int,
-                            num_buses: int, barras: pd.DataFrame, baseva, nodes: dict, Ybus) -> int:
+    def Residuo_inj_pot_rat(self, vet_estados: np.array, index_barra: int, barras: pd.DataFrame, num_buses: int,
+                            baseva, nodes: dict, Ybus) -> int:
 
         fases = barras['Fases'][index_barra]
         basekv = barras['Bases'][index_barra]
@@ -78,17 +80,16 @@ class Residuo():
             inj_pot_med = barras['Inj_pot_rat'][index_barra][fase]
             inj_pot_est = tensao_estimada*inj_pot_est
             barras['Inj_pot_rat_est'][index_barra][fase] = inj_pot_est
-            vetor_residuos.append(inj_pot_med - inj_pot_est)
+            self.vet_inj_rat.append(inj_pot_med - inj_pot_est)
 
-    def Residuo_tensao(self, vetor_residuos: np.array, vet_estados: np.array, fases: np.array, index_barra: int,
-                    barras: pd.DataFrame, num_barras: int) -> int:
+    def Residuo_tensao(self, vet_estados: np.array, index_barra: int, barras: pd.DataFrame, num_barras: int) -> int:
             tensao_estimada = vet_estados[(num_barras+index_barra)*3:(num_barras+index_barra)*3 + 3]
             
-            for fase in fases:
+            for fase in range(3):
                 tensao = barras['Tensao'][index_barra][fase]
-                vetor_residuos.append(tensao - tensao_estimada[fase])
+                self.vet_tensao.append(tensao - tensao_estimada[fase])
 
-    def Residuo_fluxo_pot_at(self, vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int,
+    def Residuo_fluxo_pot_at(self, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int,
                             elemento: str, baseva, barras: pd.DataFrame, DSSCircuit, nodes: dict, Ybus) -> int:
         barra1 = barras['nome_barra'][index_barra1]
         basekv = barras['Bases'][index_barra1]
@@ -118,12 +119,12 @@ class Residuo():
                 parte2 = tensao_estimada2*tensao_estimada[fase]*(Gs*np.cos(ang_estimado[fase]-ang_estimado2) + (Bs*np.sin(ang_estimado[fase]-ang_estimado2)))
                 pot_ativa_estimada += (parte1 - parte2)
             potencia_at = barras['Flux_pot_at'][index_barra1][0][1][fase]
-            vetor_residuos.append(potencia_at - pot_ativa_estimada)
+            self.vetor_residuos.append(potencia_at - pot_ativa_estimada)
             residuo_atual += 1
             
         return residuo_atual
     
-    def Residuo_fluxo_pot_rat(self, vetor_residuos: np.array, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int,
+    def Residuo_fluxo_pot_rat(self, vet_estados: np.array, fases: np.array, residuo_atual: int, index_barra1: int,
                             elemento: str, baseva, barras: pd.DataFrame, DSSCircuit, nodes: dict, Ybus) -> int:
         barra1 = barras['nome_barra'][index_barra1]
         basekv = barras['Bases'][index_barra1]
@@ -153,7 +154,7 @@ class Residuo():
                 parte2 = tensao_estimada2*tensao_estimada[fase]*(Gs*np.sin(ang_estimado[fase]-ang_estimado2) - (Bs*np.cos(ang_estimado[fase]-ang_estimado2)))
                 pot_reativa_estimada += (parte1 - parte2)
             potencia_rat = barras['Flux_pot_rat'][index_barra1][0][1][fase]
-            vetor_residuos.append(potencia_rat - pot_reativa_estimada)
+            self.vetor_residuos.append(potencia_rat - pot_reativa_estimada)
             residuo_atual += 1
             
         return residuo_atual

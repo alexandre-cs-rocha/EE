@@ -141,7 +141,7 @@ class Jacobiana():
     def Derivadas_tensao(self, jacobiana: np.array, barras: pd.DataFrame, medida_atual: int, index_barra: int, num_buses: int, count) -> int:   
         fases = barras['Fases'][index_barra]
 
-        for fase in range(3):
+        for fase in fases:
             jacobiana[medida_atual][(num_buses-count+index_barra)*3 + fase] = 1
             medida_atual += 1
         
